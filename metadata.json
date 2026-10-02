@@ -1,0 +1,6 @@
+{
+  "name": "SI Met RADAR",
+  "description": "SI Met RADAR - Radar meteorológico e previsão do tempo em tempo real com mapas interativos, fluxo de vento estilo Windy e agroclima.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

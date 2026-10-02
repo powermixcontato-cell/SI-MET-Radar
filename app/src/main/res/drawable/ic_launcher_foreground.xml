@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Center Doppler Radar Sweep & Weather Emblem within 66dp zone (centered at 54, 54) -->
+    
+    <!-- Sweep cone gradient -->
+    <path
+        android:pathData="M 54,54 L 80,30 A 34,34 0 0 0 54,20 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="54"
+                android:startY="54"
+                android:endX="75"
+                android:endY="25"
+                android:type="linear">
+                <item android:color="#0000E5FF" android:offset="0.0" />
+                <item android:color="#7700E5FF" android:offset="0.7" />
+                <item android:color="#CC00FFA2" android:offset="1.0" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Echo radar clusters (dBZ reflectivity simulation) -->
+    <path
+        android:fillColor="#FF5252"
+        android:pathData="M 64,36 A 4,4 0 1 1 63.9,36 Z" />
+    <path
+        android:fillColor="#FFD600"
+        android:pathData="M 69,32 A 5,5 0 1 1 68.9,32 Z" />
+    <path
+        android:fillColor="#00E676"
+        android:pathData="M 74,40 A 3.5,3.5 0 1 1 73.9,40 Z" />
+
+    <!-- Center Radar Station Pulse Dot -->
+    <path
+        android:fillColor="#00E5FF"
+        android:pathData="M 54,51 A 3,3 0 1 1 53.9,51 Z" />
+
+    <!-- Weather Cloud Symbol in Foreground -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M 44,52 C 44,48 47.5,45 51.5,45 C 53.5,45 55.3,46 56.5,47.5 C 57.5,46.5 59,46 60.5,46 C 63.5,46 66,48.5 66,51.5 C 67.5,52 69,53.5 69,55.5 C 69,58 67,60 64.5,60 L 44,60 C 41.5,60 39,58 39,55.5 C 39,53.2 41,52 44,52 Z" />
+
+    <!-- Lightning Bolt -->
+    <path
+        android:fillColor="#FFD600"
+        android:pathData="M 52,60 L 47,68 L 53,68 L 50,76 L 58,66 L 53,66 Z" />
+
+    <!-- Rain Drops -->
+    <path
+        android:fillColor="#00E5FF"
+        android:pathData="M 43,64 L 41,68 A 1.5,1.5 0 0 0 44,68 Z" />
+    <path
+        android:fillColor="#00E5FF"
+        android:pathData="M 62,63 L 60,67 A 1.5,1.5 0 0 0 63,67 Z" />
+    <path
+        android:fillColor="#00E5FF"
+        android:pathData="M 66,66 L 64,70 A 1.5,1.5 0 0 0 67,70 Z" />
+
+    <!-- Radar Outer Ring Arc Accent -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#00E5FF"
+        android:strokeWidth="2.5"
+        android:strokeLineCap="round"
+        android:pathData="M 32,54 A 22,22 0 0 1 76,54" />
+</vector>
