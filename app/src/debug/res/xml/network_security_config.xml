@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SÓ NO DEBUG: libera http:// para testar o simet-server local (ex.: http://10.0.2.2:8080/ no emulador
+     ou http://192.168.x.x:8080/ na rede de casa). O release continua só com HTTPS. -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

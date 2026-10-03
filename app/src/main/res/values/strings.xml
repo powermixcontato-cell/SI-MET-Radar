@@ -1,3 +1,10 @@
 <resources>
     <string name="app_name">SI Met RADAR</string>
+    <!-- Widget: textos iniciais neutros (antes mostrava dados inventados até a 1ª atualização) -->
+    <string name="widget_badge_forecast">PREVISÃO</string>
+    <string name="widget_placeholder_temp">—</string>
+    <string name="widget_placeholder_city">SI Met RADAR</string>
+    <string name="widget_placeholder_condition">Toque para abrir o app</string>
+    <string name="widget_placeholder_rain">Aguardando primeira atualização (Open-Meteo)</string>
+    <string name="widget_description">Temperatura e chuva prevista (Open-Meteo) da cidade selecionada no app</string>
 </resources>

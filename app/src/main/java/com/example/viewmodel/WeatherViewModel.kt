@@ -19,6 +19,8 @@ import com.example.data.local.entity.WeatherAlertEntity
 import com.example.data.local.entity.WeatherStationEntity
 import com.example.data.remote.GeminiMapsWeatherService
 import com.example.data.remote.MapsRainPrecisionResult
+import com.example.data.repository.AgroLoadState
+import com.example.data.repository.AgroSeries
 import com.example.data.repository.WeatherRepository
 import com.example.util.NotificationHelper
 import com.example.util.PdfExporter
@@ -157,6 +159,37 @@ class WeatherViewModel(private val repository: WeatherRepository) : ViewModel() 
 
     val allCiiagroRecords: StateFlow<List<com.example.data.local.entity.CiiagroRecordEntity>> = repository.allCiiagroRecords
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val currentAgroSeries: StateFlow<AgroSeries?> = combine(
+        _selectedStationId,
+        repository.agroSeries
+    ) { stationId, map ->
+        map[stationId]
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    val currentAgroLoadState: StateFlow<AgroLoadState> = combine(
+        _selectedStationId,
+        repository.agroLoadState
+    ) { stationId, map ->
+        map[stationId] ?: AgroLoadState.Idle
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), AgroLoadState.Idle)
+
+    private val _isAppInForeground = MutableStateFlow(true)
+    val isAppInForeground: StateFlow<Boolean> = _isAppInForeground.asStateFlow()
+
+    fun setAppInForeground(inForeground: Boolean) {
+        _isAppInForeground.value = inForeground
+        if (inForeground) {
+            refreshActiveStation()
+        }
+    }
+
+    fun ensureAgroSeriesLoaded(stationId: String? = null) {
+        val targetId = stationId ?: _selectedStationId.value
+        viewModelScope.launch {
+            repository.ensureAgroSeries(targetId)
+        }
+    }
 
     // Active storm cells modeled from IPMet radar reflectivity
     val activeStormCells: List<StormCellTrajectory> = listOf(
@@ -753,7 +786,10 @@ sealed interface MapsRainPrecisionUiState {
     data class Error(val message: String) : MapsRainPrecisionUiState
 }
 
-class WeatherViewModelFactory(private val repository: WeatherRepository) : ViewModelProvider.Factory {
+class WeatherViewModelFactory(
+    private val repository: WeatherRepository,
+    private val context: Context? = null
+) : ViewModelProvider.Factory {
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(WeatherViewModel::class.java)) {
             @Suppress("UNCHECKED_CAST")

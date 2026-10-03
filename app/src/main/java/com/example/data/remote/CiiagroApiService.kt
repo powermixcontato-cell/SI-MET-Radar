@@ -12,7 +12,8 @@ import java.util.concurrent.TimeUnit
 /**
  * CIIAGRO - Centro Integrado de Informações Agrometeorológicas
  * Instituto Agronômico de Campinas (IAC) / Secretaria de Agricultura e Abastecimento de SP
- * Fornece dados agrometeorológicos ao vivo e boletins agroclimáticos para municípios paulistas.
+ * DESATIVADO: o endpoint abaixo responde 404 e não há API pública confirmada do CIIAGRO.
+ * A classe foi mantida, mas não é mais chamada nem exibida como fonte (painel agro usa Open-Meteo).
  */
 @JsonClass(generateAdapter = true)
 data class CiiagroStationData(

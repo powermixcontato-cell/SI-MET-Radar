@@ -20,8 +20,21 @@ class MainActivity : ComponentActivity() {
 
     private val viewModel: WeatherViewModel by viewModels {
         val db = AppDatabase.getInstance(applicationContext)
-        val repository = WeatherRepository(dao = db.weatherDao())
-        WeatherViewModelFactory(repository)
+        val repository = WeatherRepository(
+            dao = db.weatherDao(),
+            keyStore = com.example.data.secure.SecureApiKeyStore(applicationContext)
+        )
+        WeatherViewModelFactory(repository, applicationContext)
+    }
+
+    override fun onStart() {
+        super.onStart()
+        viewModel.setAppInForeground(true)
+    }
+
+    override fun onStop() {
+        viewModel.setAppInForeground(false)
+        super.onStop()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {

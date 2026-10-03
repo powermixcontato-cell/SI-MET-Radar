@@ -150,7 +150,7 @@ fun Ciiagro24hRechartsLineChart(
                                 shape = RoundedCornerShape(6.dp)
                             ) {
                                 Text(
-                                    text = "CIIAGRO",
+                                    text = "OPEN-METEO",
                                     color = Color(0xFF10B981),
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 10.sp,
@@ -349,7 +349,7 @@ fun Ciiagro24hRechartsLineChart(
                                     val rightPadding = 36.dp.toPx()
                                     val chartWidth = size.width - leftPadding - rightPadding
                                     val x = (offset.x - leftPadding).coerceIn(0f, chartWidth)
-                                    val step = chartWidth / (data.size - 1)
+                                    val step = chartWidth / (data.size - 1).coerceAtLeast(1)
                                     val idx = (x / step).toInt().coerceIn(0, data.size - 1)
                                     selectedIndex = idx
                                 }
@@ -361,7 +361,7 @@ fun Ciiagro24hRechartsLineChart(
                                 val rightPadding = 36.dp.toPx()
                                 val chartWidth = size.width - leftPadding - rightPadding
                                 val x = (change.position.x - leftPadding).coerceIn(0f, chartWidth)
-                                val step = chartWidth / (data.size - 1)
+                                val step = chartWidth / (data.size - 1).coerceAtLeast(1)
                                 val idx = (x / step).toInt().coerceIn(0, data.size - 1)
                                 selectedIndex = idx
                             }
@@ -438,7 +438,7 @@ fun Ciiagro24hRechartsLineChart(
                         }
 
                         // 2. X-Axis Labels a cada 3 horas (0, 3, 6, 9, 12, 15, 18, 21, 23)
-                        val stepX = chartW / (data.size - 1)
+                        val stepX = chartW / (data.size - 1).coerceAtLeast(1)
                         for (i in data.indices) {
                             if (i % 3 == 0 || i == data.size - 1) {
                                 val x = leftPad + (i * stepX)
@@ -606,7 +606,7 @@ fun Ciiagro24hRechartsLineChart(
                     )
                     Spacer(modifier = Modifier.width(4.dp))
                     Text(
-                        text = "Centro Integrado de Informações Agrometeorológicas (IAC)",
+                        text = "Fonte: Open-Meteo (previsão horária)",
                         color = Color(0xFF94A3B8),
                         fontSize = 10.sp
                     )

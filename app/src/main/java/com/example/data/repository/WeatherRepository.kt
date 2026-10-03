@@ -9,15 +9,159 @@ import com.example.data.local.entity.RegionSubscriptionEntity
 import com.example.data.local.entity.UserPreferencesEntity
 import com.example.data.local.entity.WeatherAlertEntity
 import com.example.data.local.entity.WeatherStationEntity
-import com.example.data.remote.CiiagroClient
 import com.example.data.remote.NetworkClient
+import com.example.data.remote.OpenMeteoApi
+import com.example.data.remote.OpenMeteoClient
+import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import kotlin.math.cos
-import kotlin.math.sin
 
-class WeatherRepository(private val dao: WeatherDao) {
+/** Estado do carregamento da série Open-Meteo por estação (aba Cana & Citros, acumulados). */
+sealed interface AgroLoadState {
+    data object Idle : AgroLoadState
+    data object Loading : AgroLoadState
+    data object Ready : AgroLoadState
+    data class Error(val message: String) : AgroLoadState
+}
+
+class WeatherRepository(
+    private val dao: WeatherDao,
+    private val openMeteo: OpenMeteoApi = OpenMeteoClient.api,
+    private val clock: () -> Long = { System.currentTimeMillis() },
+    /** Chaves cifradas (DataStore + Keystore). null = usa os campos antigos do Room (testes). */
+    private val keyStore: com.example.data.secure.ApiKeyProvider? = null
+) {
+
+    companion object {
+        private const val TAG = "WeatherRepository"
+        /** Evita chamar a Open-Meteo mais de uma vez a cada 15 min por local. */
+        private const val MIN_FETCH_INTERVAL_MS = 15 * 60 * 1000L
+        /** Requisições simultâneas à Open-Meteo na atualização de todas as cidades. */
+        private const val MAX_PARALLEL_FETCHES = 4
+
+        fun errorMessageFor(e: Throwable): String = when (e) {
+            is java.net.UnknownHostException, is java.net.ConnectException, is java.net.SocketTimeoutException ->
+                "Sem conexão com a Open-Meteo. Verifique a internet e tente novamente."
+            is retrofit2.HttpException -> if (e.code() == 429) "Limite de consultas da Open-Meteo atingido. Tente em alguns minutos."
+                else "Open-Meteo respondeu com erro ${e.code()}. Tente novamente."
+            else -> "Falha ao obter dados da Open-Meteo. Tente novamente."
+        }
+    }
+
+    /** Erro da última atualização (null = ok). A UI pode exibir "Desatualizado". */
+    private val _lastError = MutableStateFlow<String?>(null)
+    val lastError: StateFlow<String?> = _lastError.asStateFlow()
+
+    private val lastFetchByStation = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
+    /** Último resumo agro real (Open-Meteo) por estação, usado pelo painel agro. */
+    private val _agroSummaries = MutableStateFlow<Map<String, OpenMeteoAgroSummary>>(emptyMap())
+    val agroSummaries: StateFlow<Map<String, OpenMeteoAgroSummary>> = _agroSummaries.asStateFlow()
+    fun getAgroSummary(stationId: String): OpenMeteoAgroSummary? = _agroSummaries.value[stationId]
+
+    /** Série horária/diária completa da última busca real por estação (aba Cana & Citros). Só em memória. */
+    private val _agroSeries = MutableStateFlow<Map<String, AgroSeries>>(emptyMap())
+    val agroSeries: StateFlow<Map<String, AgroSeries>> = _agroSeries.asStateFlow()
+
+    /** Carregando / erro / pronto por estação (permite à UI mostrar progresso e erro em vez de tela vazia). */
+    private val _agroLoadState = MutableStateFlow<Map<String, AgroLoadState>>(emptyMap())
+    val agroLoadState: StateFlow<Map<String, AgroLoadState>> = _agroLoadState.asStateFlow()
+    private fun setLoadState(stationId: String, state: AgroLoadState) = _agroLoadState.update { it + (stationId to state) }
+
+    // ---------------- INMET (avisos oficiais) ----------------
+    private val inmetService = com.example.data.remote.InmetAlertsService()
+
+    /** null = ok; texto = "Avisos indisponíveis" (com link para avisos.inmet.gov.br na UI). */
+    private val _alertsError = MutableStateFlow<String?>(null)
+    val alertsError: StateFlow<String?> = _alertsError.asStateFlow()
+
+    private val _alertsLastUpdated = MutableStateFlow(0L)
+    val alertsLastUpdated: StateFlow<Long> = _alertsLastUpdated.asStateFlow()
+
+    /**
+     * Baixa o RSS do INMET, mantém só avisos de SP com Fim posterior a agora e grava como WeatherAlertEntity.
+     * Devolve os avisos NOVOS (para notificação). Em falha, não apaga os avisos salvos.
+     */
+    suspend fun refreshInmetAlerts(): List<WeatherAlertEntity> = withContext(Dispatchers.IO) {
+        val prefs = dao.getUserPreferencesSync()
+        if (prefs?.isOfflineModeForced == true) return@withContext emptyList()
+        val parsed = try {
+            inmetService.fetch()
+        } catch (e: Exception) {
+            Log.w(TAG, "Falha ao obter avisos do INMET", e)
+            _alertsError.value = "Avisos indisponíveis"
+            return@withContext emptyList()
+        }
+        val now = clock()
+        val entities = InmetAlertMapper.toEntities(parsed, now)
+        val existing = dao.getAllAlertsSync().filter { it.id.startsWith("inmet_") }
+        val ackIds = existing.filter { it.isAcknowledged }.map { it.id }.toSet()
+        val existingIds = existing.map { it.id }.toSet()
+        dao.deleteInmetAlerts()
+        if (entities.isNotEmpty()) dao.insertAlerts(entities.map { if (it.id in ackIds) it.copy(isAcknowledged = true) else it })
+        _alertsError.value = null
+        _alertsLastUpdated.value = now
+        entities.filter { it.id !in existingIds }
+    }
+
+    /**
+     * Busca a Open-Meteo (atual + horária + diária) para uma estação e grava no banco.
+     * Em falha: não altera dados nem lastUpdated e devolve false.
+     */
+    private val stationLocks = java.util.concurrent.ConcurrentHashMap<String, kotlinx.coroutines.sync.Mutex>()
+
+    /** Uma busca por estação por vez (a abertura da aba e a atualização geral não duplicam a chamada). */
+    private suspend fun fetchAndStoreOpenMeteo(station: WeatherStationEntity, force: Boolean): Boolean =
+        stationLocks.getOrPut(station.id) { kotlinx.coroutines.sync.Mutex() }.withLock { fetchAndStoreOpenMeteoLocked(station, force) }
+
+    private suspend fun fetchAndStoreOpenMeteoLocked(station: WeatherStationEntity, force: Boolean): Boolean {
+        val now = clock()
+        val last = lastFetchByStation[station.id]
+        if (!force && last != null && now - last < MIN_FETCH_INTERVAL_MS && _agroSeries.value.containsKey(station.id)) return true
+        setLoadState(station.id, AgroLoadState.Loading)
+        return try {
+            val res = openMeteo.getForecast(station.lat, station.lon)
+            val mapped = OpenMeteoMapper.map(res, station, now)
+            if (mapped.hourly.isEmpty() && mapped.daily.isEmpty() && mapped.station == null) {
+                Log.w(TAG, "Open-Meteo sem dados para ${station.id}")
+                setLoadState(station.id, AgroLoadState.Error("A Open-Meteo não devolveu dados para ${station.name}."))
+                return false
+            }
+            if (mapped.daily.isNotEmpty()) {
+                dao.deleteDailyByStation(station.id)
+                dao.insertDailyForecasts(mapped.daily)
+            }
+            if (mapped.hourly.isNotEmpty()) {
+                dao.deleteHourlyByStation(station.id)
+                dao.insertHourlyForecasts(mapped.hourly)
+            }
+            mapped.station?.let { dao.insertStation(it) }
+            // update{} é atômico: várias cidades são buscadas em paralelo
+            _agroSummaries.update { it + (station.id to mapped.agro) }
+            mapped.series?.let { series -> _agroSeries.update { it + (station.id to series) } }
+            lastFetchByStation[station.id] = now
+            setLoadState(station.id, AgroLoadState.Ready)
+            true
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            setLoadState(station.id, AgroLoadState.Idle)
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "Falha Open-Meteo para ${station.id}", e)
+            setLoadState(station.id, AgroLoadState.Error(errorMessageFor(e)))
+            false
+        }
+    }
 
     val allStations: Flow<List<WeatherStationEntity>> = dao.getAllStations()
     val allAlerts: Flow<List<WeatherAlertEntity>> = dao.getAllAlerts()
@@ -42,16 +186,53 @@ class WeatherRepository(private val dao: WeatherDao) {
         return dao.getDailyForecasts(stationId)
     }
 
-    suspend fun refreshAllHourlyAndDailyLive() = withContext(Dispatchers.IO) {
-        val stations = dao.getAllStationsSync().ifEmpty { getInitialSpStations() }
-        for (station in stations) {
-            val hourly = generateHourlyForStation(station)
-            val daily = generateDailyForStation(station)
-            dao.deleteDailyByStation(station.id)
-            dao.insertDailyForecasts(daily)
-            dao.deleteHourlyByStation(station.id)
-            dao.insertHourlyForecasts(hourly)
+    /**
+     * Atualiza previsão real (Open-Meteo) de todas as estações, respeitando o intervalo de 15 min.
+     * A estação [priorityStationId] (a selecionada) é buscada PRIMEIRO; as demais em paralelo
+     * (até [MAX_PARALLEL_FETCHES] por vez). Antes eram 31 chamadas em sequência e a cidade aberta
+     * podia ficar sem série (aba Cana & Citros vazia) por até ~1 min.
+     */
+    suspend fun refreshAllHourlyAndDailyLive(priorityStationId: String? = null): Boolean = withContext(Dispatchers.IO) {
+        val prefs = dao.getUserPreferencesSync()
+        if (prefs?.isOfflineModeForced == true) return@withContext false
+        val stations = dao.getAllStationsSync()
+        var failures = 0
+        val first = stations.firstOrNull { it.id == priorityStationId }
+        if (first != null) {
+            if (!fetchAndStoreOpenMeteo(first, force = false)) failures++ else refreshCiiagroData(first.id)
         }
+        val gate = Semaphore(MAX_PARALLEL_FETCHES)
+        failures += coroutineScope {
+            stations.filter { it.id != first?.id }.map { station ->
+                async {
+                    gate.withPermit {
+                        if (!fetchAndStoreOpenMeteo(station, force = false)) 1 else { refreshCiiagroData(station.id); 0 }
+                    }
+                }
+            }.awaitAll().sum()
+        }
+        _lastError.value = if (stations.isNotEmpty() && failures == stations.size) {
+            "Falha ao atualizar a previsão (Open-Meteo). Exibindo o último dado salvo."
+        } else null
+        failures == 0
+    }
+
+    /**
+     * Garante a série Open-Meteo da estação (aba Cana & Citros ao abrir): busca se ainda não houver
+     * série em memória. Devolve true se a série estiver disponível ao final.
+     */
+    suspend fun ensureAgroSeries(stationId: String): Boolean = withContext(Dispatchers.IO) {
+        if (_agroSeries.value.containsKey(stationId)) return@withContext true
+        val prefs = dao.getUserPreferencesSync()
+        if (prefs?.isOfflineModeForced == true) {
+            setLoadState(stationId, AgroLoadState.Error("Modo offline ativado nas Configurações: os índices precisam de uma atualização com internet."))
+            return@withContext false
+        }
+        val station = dao.getStationByIdSync(stationId) ?: return@withContext false
+        // force=false: se outra busca acabou de trazer a série (mesmo lock), não repete a chamada
+        val ok = fetchAndStoreOpenMeteo(station, force = false)
+        if (ok) refreshCiiagroData(stationId)
+        ok && _agroSeries.value.containsKey(stationId)
     }
 
     suspend fun initializePreloadedDataIfNeeded() = withContext(Dispatchers.IO) {
@@ -62,78 +243,26 @@ class WeatherRepository(private val dao: WeatherDao) {
             dao.insertUserPreferences(existingPrefs.copy(selectedThemeKey = "oled_dark"))
         }
 
-        val initialStations = getInitialSpStations()
-        dao.insertStations(initialStations)
-
-        // Seed initial hourly & 15-day daily forecast for all stations
-        for (station in initialStations) {
-            val hourly = generateHourlyForStation(station)
-            val daily = generateDailyForStation(station)
-            dao.deleteDailyByStation(station.id)
-            dao.insertDailyForecasts(daily)
-            dao.deleteHourlyByStation(station.id)
-            dao.insertHourlyForecasts(hourly)
+        // Grava só a lista de estações (id, nome, região, lat, lon) e apenas se a tabela estiver vazia.
+        // Valores meteorológicos ficam "aguardando" (lastUpdated = 0) até a primeira atualização real.
+        if (dao.countStations() == 0) {
+            dao.insertStations(getInitialSpStations().map { it.asPlaceholder() })
         }
 
-        // Seed initial alerts
-        val initialAlerts = listOf(
-            WeatherAlertEntity(
-                id = "alert_sp_01",
-                regionId = "centro_bauru",
-                regionName = "Centro-Oeste / Bauru",
-                severity = "ALERTA_LARANJA",
-                title = "Alerta de Chuva Forte e Rajadas",
-                description = "IPMet Bauru detectou linha de instabilidade com ecos de 48 a 54 dBZ avançando de Botucatu para Bauru. Rajadas estimadas em até 65 km/h.",
-                radarStationSource = "Radar IPMet Bauru (UNESP)",
-                dbzPeak = 52,
-                timestamp = System.currentTimeMillis() - 15 * 60 * 1000
-            ),
-            WeatherAlertEntity(
-                id = "alert_sp_02",
-                regionId = "vale_paraiba",
-                regionName = "Vale do Paraíba & Serra da Mantiqueira",
-                severity = "ALERTA_VERMELHO",
-                title = "Tempestade Severa com Risco de Granizo",
-                description = "Refletividade extrema atingindo 58 dBZ em Campos do Jordão e São José dos Campos. Alto risco de alagamentos e queda localizada de granizo.",
-                radarStationSource = "Radar Pico do Couto / IPMet",
-                dbzPeak = 58,
-                timestamp = System.currentTimeMillis() - 40 * 60 * 1000
-            ),
-            WeatherAlertEntity(
-                id = "alert_sp_03",
-                regionId = "baixada_santista",
-                regionName = "Baixada Santista e Litoral",
-                severity = "ALERTA_AMARELO",
-                title = "Chuva Contínua e Maré Alta",
-                description = "Acumulado moderado persistente nas encostas da Serra do Mar. IPMet monitora células isoladas em Santos e Guarujá.",
-                radarStationSource = "Radar São Roque / IPMet",
-                dbzPeak = 38,
-                timestamp = System.currentTimeMillis() - 90 * 60 * 1000
-            ),
-            WeatherAlertEntity(
-                id = "alert_sp_04",
-                regionId = "rmsp",
-                regionName = "Região Metropolitana de SP",
-                severity = "AVISO_METEOROLOGICO",
-                title = "Queda Brusca de Temperatura",
-                description = "Entrada de frente fria polar pelo sul do estado provocará declínio térmico de mais de 8°C nas próximas 12 horas.",
-                radarStationSource = "Rede IPMet & Defesa Civil SP",
-                dbzPeak = 25,
-                timestamp = System.currentTimeMillis() - 120 * 60 * 1000
-            ),
-            WeatherAlertEntity(
-                id = "alert_sp_05",
-                regionId = "barretos",
-                regionName = "Região de Barretos / Bacia Baixo Pardo e Grande",
-                severity = "ALERTA_LARANJA",
-                title = "Alerta Agro: Tempestade Severa & Rajadas em Barretos",
-                description = "IPMet e CIIAGRO monitoram núcleos convectivos de 48 dBZ avançando sobre os canaviais e pomares de Barretos e Colina. Risco de granizo localizado e rajadas de vento > 60 km/h.",
-                radarStationSource = "Radar IPMet Bauru / Rede CIIAGRO",
-                dbzPeak = 48,
-                timestamp = System.currentTimeMillis() - 25 * 60 * 1000
-            )
-        )
-        dao.insertAlerts(initialAlerts)
+        // Migra chaves salvas em texto puro no Room para o armazenamento cifrado e apaga do Room
+        val prefsNow = dao.getUserPreferencesSync()
+        if (keyStore != null && prefsNow != null &&
+            (prefsNow.openWeatherApiKey.isNotBlank() || prefsNow.weatherbitApiKey.isNotBlank())) {
+            try {
+                keyStore.save(prefsNow.openWeatherApiKey, prefsNow.weatherbitApiKey)
+                dao.insertUserPreferences(prefsNow.copy(openWeatherApiKey = "", weatherbitApiKey = ""))
+            } catch (e: Exception) {
+                Log.w(TAG, "Falha ao migrar chaves para armazenamento cifrado", e)
+            }
+        }
+
+        // Nunca grava alertas nem previsões. Remove alertas fixos de instalações antigas.
+        dao.deleteSeedAlerts()
 
         // Seed climate trends (São Paulo State historical comparison 1991-2020 normal vs 2026)
         val trends = listOf(
@@ -150,15 +279,15 @@ class WeatherRepository(private val dao: WeatherDao) {
             ClimateTrendEntity(11, "Nov", 24.8, 23.0, 175.0, 160.0, 14, 13),
             ClimateTrendEntity(12, "Dez", 25.5, 24.1, 260.0, 235.0, 18, 17)
         )
-        dao.insertClimateTrends(trends)
+        if (dao.countClimateTrends() == 0) dao.insertClimateTrends(trends)
 
         // Seed regional subscriptions com suporte expresso a BARRETOS e demais polos
         val subscriptions = listOf(
             RegionSubscriptionEntity("barretos", "Região de Barretos (Norte Paulista / Agro)", true, 8, true, true),
             RegionSubscriptionEntity("rmsp", "Região Metropolitana de SP", true, 10, true, true),
             RegionSubscriptionEntity("campinas", "Região de Campinas & Circuito das Águas", true, 10, true, true),
-            RegionSubscriptionEntity("centro_bauru", "Centro-Oeste / Bauru (Radar IPMet)", true, 8, true, true),
-            RegionSubscriptionEntity("oeste_prudente", "Oeste / Presidente Prudente (Radar IPMet)", true, 10, true, true),
+            RegionSubscriptionEntity("centro_bauru", "Centro-Oeste / Bauru", true, 8, true, true),
+            RegionSubscriptionEntity("oeste_prudente", "Oeste / Presidente Prudente", true, 10, true, true),
             RegionSubscriptionEntity("ribeirao_preto", "Ribeirão Preto & Franca (Cana & Café)", true, 10, true, true),
             RegionSubscriptionEntity("noroeste_riopreto", "Noroeste / São José do Rio Preto", true, 10, true, true),
             RegionSubscriptionEntity("araraquara", "Araraquara & São Carlos (Citrus & Cana)", true, 8, true, true),
@@ -168,132 +297,11 @@ class WeatherRepository(private val dao: WeatherDao) {
             RegionSubscriptionEntity("sorocaba_itapetininga", "Sorocaba & Itapetininga", true, 10, true, true),
             RegionSubscriptionEntity("vale_ribeira", "Vale do Ribeira & Registro", true, 10, true, true)
         )
-        dao.insertSubscriptions(subscriptions)
+        // Só na primeira execução (antes regravava a cada abertura e apagava as escolhas do usuário)
+        if (dao.countSubscriptions() == 0) dao.insertSubscriptions(subscriptions)
 
-        // Seed initial CIIAGRO agrometeorological live records & forecasts
-        val ciiagroRecords = listOf(
-            CiiagroRecordEntity(
-                stationId = "barretos",
-                municipality = "Barretos",
-                airTemp = 28.5,
-                tempMin = 19.2,
-                tempMax = 33.4,
-                relativeHumidity = 58,
-                rainAccumulatedMm = 12.6,
-                et0MmDay = 4.8,
-                windSpeedKmH = 14.5,
-                solarRadiationMj = 21.2,
-                soilWaterDeficitRisk = "Atenção Leve",
-                cropManagementRecommendation = "Janela de pulverização aberta das 06h às 10h. Condição ideal para colheita mecânica de cana até a aproximação das trovoadas vespertinas.",
-                forecastRain7DaysMm = 38.5
-            ),
-            CiiagroRecordEntity(
-                stationId = "bauru",
-                municipality = "Bauru",
-                airTemp = 24.2,
-                tempMin = 18.0,
-                tempMax = 29.5,
-                relativeHumidity = 72,
-                rainAccumulatedMm = 8.4,
-                et0MmDay = 3.6,
-                windSpeedKmH = 18.5,
-                solarRadiationMj = 18.5,
-                soilWaterDeficitRisk = "Sem Déficit",
-                cropManagementRecommendation = "Solo com boa capacidade de campo. Evitar pulverização foliar nas próximas 3 horas devido ao vento acima de 15 km/h e radar IPMet com ecos de chuva.",
-                forecastRain7DaysMm = 44.0
-            ),
-            CiiagroRecordEntity(
-                stationId = "ribeirao_preto",
-                municipality = "Ribeirão Preto",
-                airTemp = 27.6,
-                tempMin = 18.5,
-                tempMax = 31.8,
-                relativeHumidity = 62,
-                rainAccumulatedMm = 6.2,
-                et0MmDay = 4.4,
-                windSpeedKmH = 12.0,
-                solarRadiationMj = 20.0,
-                soilWaterDeficitRisk = "Sem Déficit",
-                cropManagementRecommendation = "Excelente acúmulo de ATR na cana-de-açúcar. Monitorar umidade relativa à tarde contra focos de queimada em palhada.",
-                forecastRain7DaysMm = 32.0
-            ),
-            CiiagroRecordEntity(
-                stationId = "araraquara",
-                municipality = "Araraquara",
-                airTemp = 25.8,
-                tempMin = 17.5,
-                tempMax = 30.2,
-                relativeHumidity = 66,
-                rainAccumulatedMm = 9.8,
-                et0MmDay = 4.0,
-                windSpeedKmH = 15.0,
-                solarRadiationMj = 19.1,
-                soilWaterDeficitRisk = "Sem Déficit",
-                cropManagementRecommendation = "Condições ideais para pomares cítricos. Atenção a períodos úmidos prolongados para controle do cancro cítrico.",
-                forecastRain7DaysMm = 41.5
-            ),
-            CiiagroRecordEntity(
-                stationId = "presidente_prudente",
-                municipality = "Presidente Prudente",
-                airTemp = 26.5,
-                tempMin = 19.0,
-                tempMax = 31.0,
-                relativeHumidity = 68,
-                rainAccumulatedMm = 7.0,
-                et0MmDay = 4.2,
-                windSpeedKmH = 16.0,
-                solarRadiationMj = 20.5,
-                soilWaterDeficitRisk = "Sem Déficit",
-                cropManagementRecommendation = "Manejo de pastagens e cana favorável. Vento e radar indicam tempo instável no fim do dia.",
-                forecastRain7DaysMm = 28.0
-            ),
-            CiiagroRecordEntity(
-                stationId = "sao_jose_rio_preto",
-                municipality = "São José do Rio Preto",
-                airTemp = 29.2,
-                tempMin = 20.1,
-                tempMax = 34.0,
-                relativeHumidity = 54,
-                rainAccumulatedMm = 4.5,
-                et0MmDay = 5.2,
-                windSpeedKmH = 11.5,
-                solarRadiationMj = 22.0,
-                soilWaterDeficitRisk = "Atenção Leve",
-                cropManagementRecommendation = "Irrigação por gotejamento recomendada em citrus. Alto ETo diário exige reposição hídrica nos pomares jovens.",
-                forecastRain7DaysMm = 22.0
-            ),
-            CiiagroRecordEntity(
-                stationId = "piracicaba",
-                municipality = "Piracicaba",
-                airTemp = 25.0,
-                tempMin = 17.0,
-                tempMax = 29.0,
-                relativeHumidity = 70,
-                rainAccumulatedMm = 11.2,
-                et0MmDay = 3.8,
-                windSpeedKmH = 13.0,
-                solarRadiationMj = 18.0,
-                soilWaterDeficitRisk = "Sem Déficit",
-                cropManagementRecommendation = "Umidade do solo ideal para plantio e soqueira de cana. Monitorar previsão de chuvas para liberação de colhedoras.",
-                forecastRain7DaysMm = 36.0
-            ),
-            CiiagroRecordEntity(
-                stationId = "campinas",
-                municipality = "Campinas",
-                airTemp = 24.5,
-                tempMin = 16.5,
-                tempMax = 28.5,
-                relativeHumidity = 74,
-                rainAccumulatedMm = 10.5,
-                et0MmDay = 3.5,
-                windSpeedKmH = 14.0,
-                solarRadiationMj = 17.5,
-                soilWaterDeficitRisk = "Sem Déficit",
-                cropManagementRecommendation = "Hortifrutigranjeiros e grãos com bom balanço hídrico. Realizar pulverização no início da manhã.",
-                forecastRain7DaysMm = 39.0
-            )
-        )
-        dao.insertCiiagroRecords(ciiagroRecords)
+        // Registros agro fixos (CIIAGRO) não são mais gravados; apaga os de versões antigas.
+        dao.deleteLegacyCiiagroRecords()
     }
 
     suspend fun refreshStation(stationId: String, forceOffline: Boolean = false): Boolean = withContext(Dispatchers.IO) {
@@ -301,79 +309,77 @@ class WeatherRepository(private val dao: WeatherDao) {
         val prefs = dao.getUserPreferencesSync() ?: UserPreferencesEntity()
 
         if (forceOffline || prefs.isOfflineModeForced) {
-            // In offline mode, keep stored data with updated check timestamp
-            dao.insertStation(currentStation.copy(lastUpdated = System.currentTimeMillis()))
+            // Modo offline: mantém os dados salvos e NÃO altera lastUpdated (reflete a última atualização real)
             return@withContext true
         }
 
-        // Try OpenWeatherMap API if user provided a key
-        if (prefs.openWeatherApiKey.isNotBlank()) {
-            try {
-                val api = NetworkClient.openWeatherRetrofit
-                val res = api.getCurrentWeather(currentStation.lat, currentStation.lon, prefs.openWeatherApiKey)
-                val temp = res.main?.temp ?: currentStation.currentTemp
-                val updatedStation = currentStation.copy(
-                    currentTemp = temp,
-                    feelsLike = res.main?.feelsLike ?: currentStation.feelsLike,
-                    minTemp = res.main?.tempMin ?: currentStation.minTemp,
-                    maxTemp = res.main?.tempMax ?: currentStation.maxTemp,
-                    humidity = res.main?.humidity ?: currentStation.humidity,
-                    pressure = res.main?.pressure ?: currentStation.pressure,
-                    windSpeed = (res.wind?.speed ?: 3.0) * 3.6, // m/s to km/h
-                    rainVolumeMm = res.rain?.oneHour ?: currentStation.rainVolumeMm,
-                    weatherCondition = res.weather?.firstOrNull()?.description?.replaceFirstChar { it.uppercase() } ?: currentStation.weatherCondition,
-                    lastUpdated = System.currentTimeMillis()
-                )
-                dao.insertStation(updatedStation)
-                return@withContext true
-            } catch (_: Exception) {
-                // Fallback to offline / IPMet simulation
-            }
-        }
+        // 1) Previsão + tempo atual sempre pela Open-Meteo (F1)
+        val openMeteoOk = fetchAndStoreOpenMeteo(currentStation, force = true)
+        var anySuccess = openMeteoOk
+        var base = dao.getStationByIdSync(stationId) ?: currentStation
 
-        // Try Weatherbit API if user provided key
-        if (prefs.weatherbitApiKey.isNotBlank()) {
+        val owKey = readOpenWeatherKey(prefs)
+        val wbKey = readWeatherbitKey(prefs)
+
+        // 2) Tempo atual opcional por OpenWeatherMap (chave do usuário) – sobrescreve só os campos informados
+        if (owKey.isNotBlank()) {
             try {
-                val api = NetworkClient.weatherbitRetrofit
-                val res = api.getCurrentWeather(currentStation.lat, currentStation.lon, prefs.weatherbitApiKey)
-                val item = res.data?.firstOrNull()
-                if (item != null) {
-                    val updatedStation = currentStation.copy(
-                        currentTemp = item.temp ?: currentStation.currentTemp,
-                        feelsLike = item.appTemp ?: currentStation.feelsLike,
-                        humidity = item.rh ?: currentStation.humidity,
-                        pressure = item.pres?.toInt() ?: currentStation.pressure,
-                        windSpeed = (item.windSpd ?: 4.0) * 3.6,
-                        rainVolumeMm = item.precip ?: currentStation.rainVolumeMm,
-                        uvIndex = item.uv?.toInt() ?: currentStation.uvIndex,
-                        aqi = item.aqi ?: currentStation.aqi,
-                        weatherCondition = item.weather?.description?.replaceFirstChar { it.uppercase() } ?: currentStation.weatherCondition,
-                        lastUpdated = System.currentTimeMillis()
+                val res = NetworkClient.openWeatherRetrofit.getCurrentWeather(base.lat, base.lon, owKey)
+                val temp = res.main?.temp
+                if (temp != null) {
+                    val windKmh = res.wind?.speed?.let { it * 3.6 } // m/s → km/h
+                    base = base.copy(
+                        currentTemp = temp,
+                        feelsLike = res.main?.feelsLike ?: base.feelsLike,
+                        humidity = res.main?.humidity ?: base.humidity,
+                        pressure = res.main?.pressure ?: base.pressure,
+                        windSpeed = windKmh ?: base.windSpeed,
+                        windDirection = if (windKmh != null) {
+                            val compass = com.example.data.remote.degreesToCompass(res.wind?.deg?.toDouble())
+                            if (compass != null) "$compass ${windKmh.toInt()} km/h" else "${windKmh.toInt()} km/h"
+                        } else base.windDirection,
+                        weatherCondition = res.weather?.firstOrNull()?.description?.replaceFirstChar { it.uppercase() } ?: base.weatherCondition,
+                        synopticSummary = "Tempo atual: OpenWeatherMap • Previsão: Open-Meteo",
+                        lastUpdated = clock()
                     )
-                    dao.insertStation(updatedStation)
-                    return@withContext true
+                    dao.insertStation(base)
+                    anySuccess = true
                 }
-            } catch (_: Exception) {
-                // Fallback
+            } catch (e: Exception) {
+                Log.w(TAG, "Falha OpenWeatherMap para $stationId", e)
+            }
+        } else if (wbKey.isNotBlank()) {
+            // 3) Tempo atual opcional por Weatherbit (chave do usuário)
+            try {
+                val item = NetworkClient.weatherbitRetrofit.getCurrentWeather(base.lat, base.lon, wbKey).data?.firstOrNull()
+                if (item?.temp != null) {
+                    val windKmh = item.windSpd?.let { it * 3.6 }
+                    base = base.copy(
+                        currentTemp = item.temp,
+                        feelsLike = item.appTemp ?: base.feelsLike,
+                        humidity = item.rh ?: base.humidity,
+                        pressure = item.pres?.toInt() ?: base.pressure,
+                        windSpeed = windKmh ?: base.windSpeed,
+                        uvIndex = item.uv?.toInt() ?: base.uvIndex,
+                        aqi = item.aqi ?: base.aqi,
+                        weatherCondition = item.weather?.description?.replaceFirstChar { it.uppercase() } ?: base.weatherCondition,
+                        synopticSummary = "Tempo atual: Weatherbit • Previsão: Open-Meteo",
+                        lastUpdated = clock()
+                    )
+                    dao.insertStation(base)
+                    anySuccess = true
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Falha Weatherbit para $stationId", e)
             }
         }
 
-        // Standard IPMet sync simulation: updates micro-variations and Doppler reflectivity
-        val variation = (Math.random() * 0.6 - 0.3)
-        val newTemp = Math.round((currentStation.currentTemp + variation) * 10.0) / 10.0
-        val updated = currentStation.copy(
-            currentTemp = newTemp,
-            lastUpdated = System.currentTimeMillis()
-        )
-        dao.insertStation(updated)
-
-        // Regenerate live 24h hourly and 15-day daily forecasts matching current clock
-        val hourly = generateHourlyForStation(updated)
-        val daily = generateDailyForStation(updated)
-        dao.deleteDailyByStation(stationId)
-        dao.insertDailyForecasts(daily)
-        dao.deleteHourlyByStation(stationId)
-        dao.insertHourlyForecasts(hourly)
+        if (!anySuccess) {
+            // Todas as fontes falharam: não altera dados nem lastUpdated; expõe erro para a UI
+            _lastError.value = "Falha ao atualizar ${currentStation.name}. Exibindo o último dado salvo."
+            return@withContext false
+        }
+        _lastError.value = null
 
         // Também sincroniza dados do CIIAGRO se disponível
         refreshCiiagroData(stationId)
@@ -381,68 +387,97 @@ class WeatherRepository(private val dao: WeatherDao) {
         return@withContext true
     }
 
+    /**
+     * Painel agro. O endpoint do CIIAGRO (CiiagroApiService) responde 404 e não há API pública confirmada:
+     * a chamada foi desativada. Os dados agro vêm da Open-Meteo (ET0 FAO, radiação, chuva com past_days=30).
+     * Sem dado real, nada é gravado e lastUpdated não muda.
+     */
     suspend fun refreshCiiagroData(stationId: String): Boolean = withContext(Dispatchers.IO) {
-        val existing = dao.getCiiagroRecordSync(stationId)
         val station = dao.getStationByIdSync(stationId) ?: return@withContext false
-
-        try {
-            val res = CiiagroClient.apiService.getStationAgroData(station.name)
-            val live = res.liveData
-            val forecast = res.forecasts?.firstOrNull()
-
-            if (live != null) {
-                val record = CiiagroRecordEntity(
-                    stationId = stationId,
-                    municipality = live.municipality ?: station.name,
-                    airTemp = live.airTemp ?: station.currentTemp,
-                    tempMin = live.tempMin ?: station.minTemp,
-                    tempMax = live.tempMax ?: station.maxTemp,
-                    relativeHumidity = live.relativeHumidity ?: station.humidity,
-                    rainAccumulatedMm = live.rainAccumulatedMm ?: station.rainVolumeMm,
-                    et0MmDay = live.et0MmDay ?: (existing?.et0MmDay ?: 4.2),
-                    windSpeedKmH = live.windSpeedKmH ?: station.windSpeed,
-                    solarRadiationMj = live.solarRadiation ?: (existing?.solarRadiationMj ?: 19.5),
-                    soilWaterDeficitRisk = live.waterBalanceStatus ?: (existing?.soilWaterDeficitRisk ?: "Sem Déficit"),
-                    cropManagementRecommendation = forecast?.managementRecommendation ?: (existing?.cropManagementRecommendation ?: "Manejo agrometeorológico monitorado pelo CIIAGRO/IAC."),
-                    forecastRain7DaysMm = forecast?.rainForecastMm ?: (existing?.forecastRain7DaysMm ?: 35.0),
-                    liveDataSource = res.source ?: "CIIAGRO / IAC - SP",
-                    lastUpdated = System.currentTimeMillis()
-                )
-                dao.insertCiiagroRecord(record)
-                return@withContext true
-            }
-        } catch (_: Exception) {
-            // Em caso de offline ou falha na API CIIAGRO, simula ou atualiza timestamp dos dados agronômicos locais
+        val agro = getAgroSummary(stationId) ?: return@withContext false
+        if (station.lastUpdated <= 0L) return@withContext false
+        val balance = agro.waterBalance7DaysMm
+        val risk = when {
+            balance == null -> "—"
+            balance < -20.0 -> "Déficit (estimativa)"
+            balance < 0.0 -> "Atenção (estimativa)"
+            else -> "Sem déficit (estimativa)"
         }
-
-        if (existing != null) {
-            dao.insertCiiagroRecord(existing.copy(lastUpdated = System.currentTimeMillis()))
-        } else {
-            // Cria registro inicial se não existir
-            val defaultRecord = CiiagroRecordEntity(
-                stationId = stationId,
-                municipality = station.name,
-                airTemp = station.currentTemp,
-                tempMin = station.minTemp,
-                tempMax = station.maxTemp,
-                relativeHumidity = station.humidity,
-                rainAccumulatedMm = station.rainVolumeMm,
-                et0MmDay = 4.2,
-                windSpeedKmH = station.windSpeed,
-                solarRadiationMj = 20.0,
-                soilWaterDeficitRisk = if (station.humidity < 40) "Atenção Leve" else "Sem Déficit",
-                cropManagementRecommendation = "Dados agrometeorológicos de ${station.name} sincronizados com a rede do CIIAGRO.",
-                forecastRain7DaysMm = station.rainVolumeMm * 3.5,
-                liveDataSource = "CIIAGRO / IAC - SP",
-                lastUpdated = System.currentTimeMillis()
-            )
-            dao.insertCiiagroRecord(defaultRecord)
-        }
+        val n30 = agro.past30DaysAvailable
+        val acc30 = if (agro.rainPast30DaysMm != null && n30 > 0) {
+            " Chuva acumulada nos últimos $n30 dias: ${agro.rainPast30DaysMm} mm" +
+                (agro.waterBalance30DaysMm?.let { " (balanço chuva − ET0: $it mm)" } ?: "") + "."
+        } else ""
+        val explanation = if (balance != null) {
+            "Balanço hídrico estimado (7 dias) = chuva acumulada ${agro.rainPast7DaysMm} mm − ET0 acumulada ${agro.et0Past7DaysMm} mm = $balance mm.$acc30 Estimativa simples (Open-Meteo), não substitui medição de campo."
+        } else "Balanço hídrico indisponível (dados insuficientes).$acc30"
+        val record = CiiagroRecordEntity(
+            stationId = stationId,
+            municipality = station.name,
+            airTemp = station.currentTemp,
+            tempMin = agro.tempMinToday ?: station.minTemp,
+            tempMax = agro.tempMaxToday ?: station.maxTemp,
+            relativeHumidity = station.humidity,
+            // acumulado de 30 dias (ou dos dias disponíveis – ver texto da recomendação)
+            rainAccumulatedMm = agro.rainPast30DaysMm ?: agro.rainPast7DaysMm ?: 0.0,
+            et0MmDay = agro.et0TodayMm ?: 0.0,
+            windSpeedKmH = station.windSpeed,
+            solarRadiationMj = agro.radiationTodayMj ?: 0.0,
+            soilWaterDeficitRisk = risk,
+            cropManagementRecommendation = explanation,
+            forecastRain7DaysMm = agro.rainNext7DaysMm ?: 0.0,
+            liveDataSource = "Open-Meteo (estimativa)",
+            lastUpdated = station.lastUpdated
+        )
+        dao.insertCiiagroRecord(record)
         return@withContext true
+    }
+
+    private suspend fun readOpenWeatherKey(prefs: UserPreferencesEntity): String =
+        try { keyStore?.openWeatherKey() } catch (e: Exception) { Log.w(TAG, "Chave OpenWeather ilegível", e); null }
+            ?.takeIf { it.isNotBlank() } ?: prefs.openWeatherApiKey
+
+    private suspend fun readWeatherbitKey(prefs: UserPreferencesEntity): String =
+        try { keyStore?.weatherbitKey() } catch (e: Exception) { Log.w(TAG, "Chave Weatherbit ilegível", e); null }
+            ?.takeIf { it.isNotBlank() } ?: prefs.weatherbitApiKey
+
+    /** Chaves atuais para a tela de configurações. */
+    suspend fun readApiKeys(): Pair<String, String> = withContext(Dispatchers.IO) {
+        val prefs = dao.getUserPreferencesSync() ?: UserPreferencesEntity()
+        Pair(readOpenWeatherKey(prefs), readWeatherbitKey(prefs))
+    }
+
+    /** Salva as chaves cifradas (ou no Room, se não houver keyStore) e limpa o texto puro do Room. */
+    suspend fun saveApiKeys(openWeatherKey: String, weatherbitKey: String) = withContext(Dispatchers.IO) {
+        val prefs = dao.getUserPreferencesSync() ?: UserPreferencesEntity()
+        if (keyStore != null) {
+            keyStore.save(openWeatherKey, weatherbitKey)
+            dao.insertUserPreferences(prefs.copy(openWeatherApiKey = "", weatherbitApiKey = ""))
+        } else {
+            dao.insertUserPreferences(prefs.copy(openWeatherApiKey = openWeatherKey.trim(), weatherbitApiKey = weatherbitKey.trim()))
+        }
+    }
+
+    /** activeStationId salvo nas preferências (também usado pelo widget). */
+    suspend fun getSavedActiveStationId(): String? = withContext(Dispatchers.IO) {
+        dao.getUserPreferencesSync()?.activeStationId
     }
 
     suspend fun updatePreferences(prefs: UserPreferencesEntity) = withContext(Dispatchers.IO) {
         dao.insertUserPreferences(prefs)
+    }
+
+    private val prefsMutex = kotlinx.coroutines.sync.Mutex()
+
+    /**
+     * Lê as preferências ATUAIS do banco e aplica [transform]. Evita sobrescrever as preferências com o
+     * valor inicial padrão do StateFlow da UI (antes do primeiro carregamento) ou com uma cópia desatualizada.
+     */
+    suspend fun updatePreferences(transform: (UserPreferencesEntity) -> UserPreferencesEntity) = withContext(Dispatchers.IO) {
+        prefsMutex.withLock {
+            val current = dao.getUserPreferencesSync() ?: UserPreferencesEntity()
+            dao.insertUserPreferences(transform(current))
+        }
     }
 
     suspend fun updateSubscription(sub: RegionSubscriptionEntity) = withContext(Dispatchers.IO) {
@@ -462,7 +497,7 @@ class WeatherRepository(private val dao: WeatherDao) {
             WeatherStationEntity(
                 id = "bauru",
                 name = "Bauru",
-                region = "Centro-Oeste / IPMet UNESP",
+                region = "Centro-Oeste",
                 lat = -22.3145,
                 lon = -49.0587,
                 currentTemp = 24.2,
@@ -487,7 +522,7 @@ class WeatherRepository(private val dao: WeatherDao) {
             WeatherStationEntity(
                 id = "presidente_prudente",
                 name = "Presidente Prudente",
-                region = "Oeste Paulista / IPMet UNESP",
+                region = "Oeste Paulista",
                 lat = -22.1256,
                 lon = -51.3889,
                 currentTemp = 27.6,
@@ -1236,119 +1271,18 @@ class WeatherRepository(private val dao: WeatherDao) {
             )
         )
     }
-
-    private fun generateHourlyForStation(station: WeatherStationEntity): List<HourlyForecastEntity> {
-        val calendar = java.util.Calendar.getInstance()
-        val currentHour = calendar.get(java.util.Calendar.HOUR_OF_DAY)
-        
-        // Gerar as próximas 24 horas consecutivas a partir da hora atual
-        return (0..23).map { offset ->
-            val hour = (currentHour + offset) % 24
-            val hourStr = String.format(java.util.Locale.getDefault(), "%02d:00", hour)
-            
-            // Ciclo circadiano diurno/noturno realista (mínima entre 05h-06h, máxima às 14h-15h)
-            val hourAngle = ((hour - 6) * Math.PI) / 12.0
-            val tempRange = (station.maxTemp - station.minTemp).coerceAtLeast(3.0)
-            val normalizedCycle = (Math.sin(hourAngle - Math.PI / 2.0) + 1.0) / 2.0
-            val calculatedTemp = station.minTemp + (normalizedCycle * tempRange)
-            val finalTemp = Math.round(calculatedTemp * 10.0) / 10.0
-
-            // Probabilidade e precipitação dinâmica (pico convectivo vespertino entre 14h e 19h)
-            val isAfternoonConvection = hour in 14..19
-            val baseProb = if (isAfternoonConvection) {
-                (station.rainProbability * 1.25).toInt().coerceIn(15, 95)
-            } else if (hour in 20..23 || hour in 0..3) {
-                (station.rainProbability * 0.65).toInt().coerceIn(10, 80)
-            } else {
-                (station.rainProbability * 0.35).toInt().coerceIn(5, 50)
-            }
-
-            val rainMm = if (baseProb >= 50) {
-                val factor = if (isAfternoonConvection) 1.4 else 0.7
-                Math.round(((station.rainVolumeMm / 3.5) * factor) * 10.0) / 10.0
-            } else 0.0
-
-            val condition = when {
-                baseProb >= 75 -> "Chuva Forte / Trovoada"
-                baseProb >= 50 -> "Pancada de Chuva"
-                baseProb >= 25 -> "Parcialmente Nublado"
-                else -> if (hour in 6..18) "Ensolarado" else "Céu Estrelado"
-            }
-            val iconType = when {
-                baseProb >= 75 -> "storm"
-                baseProb >= 50 -> "rain"
-                baseProb >= 25 -> "cloudy"
-                else -> "sunny"
-            }
-
-            HourlyForecastEntity(
-                stationId = station.id,
-                hourText = hourStr,
-                temp = finalTemp,
-                rainProbability = baseProb,
-                rainVolumeMm = rainMm,
-                condition = condition,
-                iconType = iconType
-            )
-        }
-    }
-
-    private fun generateDailyForStation(station: WeatherStationEntity): List<DailyForecastEntity> {
-        // 15 Dias completos com datas e dias da semana reais a partir do calendário do sistema
-        val weekDayNames = listOf("Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb")
-        val baseCal = java.util.Calendar.getInstance()
-
-        return (0..14).map { dayOffset ->
-            val dayCal = java.util.Calendar.getInstance()
-            dayCal.timeInMillis = baseCal.timeInMillis
-            dayCal.add(java.util.Calendar.DAY_OF_YEAR, dayOffset)
-
-            val dayOfWeekInt = dayCal.get(java.util.Calendar.DAY_OF_WEEK) // 1=Dom, 2=Seg, ... 7=Sáb
-            val dayName = when (dayOffset) {
-                0 -> "Hoje"
-                1 -> "Amanhã"
-                else -> weekDayNames[(dayOfWeekInt - 1).coerceIn(0, 6)]
-            }
-
-            val dateText = String.format(
-                java.util.Locale.getDefault(),
-                "%02d/%02d",
-                dayCal.get(java.util.Calendar.DAY_OF_MONTH),
-                dayCal.get(java.util.Calendar.MONTH) + 1
-            )
-
-            val deltaMin = (sin(dayOffset * 0.7) * 2.2) - 0.5
-            val deltaMax = (cos(dayOffset * 0.6) * 3.0) - 0.8
-            val rawProb = ((station.rainProbability + (dayOffset * 7) + (if (dayOffset % 3 == 0) 25 else -10)) % 90).coerceIn(10, 88)
-            val isRainy = rawProb >= 50
-            val rainMm = if (isRainy) {
-                Math.round(((station.rainVolumeMm * 0.8) + (dayOffset * 1.5) + (if (rawProb > 70) 8.0 else 2.0)) * 10.0) / 10.0
-            } else 0.0
-
-            val condition = when {
-                rawProb >= 75 -> "Tempestade com Trovoada"
-                rawProb >= 55 -> "Pancadas de Chuva"
-                rawProb >= 35 -> "Parcialmente Nublado"
-                else -> "Sol e Poucas Nuvens"
-            }
-            val iconType = when {
-                rawProb >= 75 -> "storm"
-                rawProb >= 50 -> "rain"
-                rawProb >= 30 -> "cloudy"
-                else -> "sunny"
-            }
-
-            DailyForecastEntity(
-                stationId = station.id,
-                dayOfWeek = dayName,
-                dateText = dateText,
-                minTemp = Math.round((station.minTemp + deltaMin) * 10.0) / 10.0,
-                maxTemp = Math.round((station.maxTemp + deltaMax) * 10.0) / 10.0,
-                rainProbability = rawProb,
-                rainVolumeMm = rainMm,
-                condition = condition,
-                iconType = iconType
-            )
-        }
-    }
 }
+
+/**
+ * Estação "aguardando primeira atualização real": nenhum valor meteorológico fixo é exibido como real.
+ * lastUpdated = 0 indica que nunca houve dado real.
+ */
+internal fun WeatherStationEntity.asPlaceholder(): WeatherStationEntity = copy(
+    currentTemp = 0.0, minTemp = 0.0, maxTemp = 0.0, feelsLike = 0.0,
+    humidity = 0, pressure = 0, windSpeed = 0.0, windDirection = "—",
+    rainVolumeMm = 0.0, rainProbability = 0, dbzReflectivity = 0,
+    weatherCondition = "Dados indisponíveis", iconType = "cloudy",
+    synopticSummary = "Aguardando a primeira atualização (Open-Meteo).",
+    sunrise = "—", sunset = "—", uvIndex = 0, aqi = 0,
+    lastUpdated = 0L
+)

@@ -163,7 +163,7 @@ fun GoogleMapsRainPrecisionCard(
             Spacer(modifier = Modifier.height(10.dp))
 
             Text(
-                text = "Cruze dados do radar IPMet com a precisão espacial do Google Maps para detectar chuva em bairros, vias de acesso e pontos críticos.",
+                text = "Cruze a previsão Open-Meteo e os avisos do INMET com a precisão espacial do Google Maps (requer chave do Gemini).",
                 color = Color(0xFF94A3B8),
                 fontSize = 12.sp,
                 lineHeight = 16.sp
@@ -293,7 +293,7 @@ fun GoogleMapsRainPrecisionCard(
                             )
                             Spacer(modifier = Modifier.height(10.dp))
                             Text(
-                                text = "Consultando Google Maps e Doppler IPMet...",
+                                text = "Consultando Google Maps e Open-Meteo...",
                                 color = Color(0xFF94A3B8),
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Medium
@@ -413,7 +413,7 @@ fun MapsPrecisionResultCard(
                 border = BorderStroke(1.dp, if (result.isGroundedWithMaps) Color(0xFF10B981).copy(alpha = 0.5f) else Color(0xFF38BDF8).copy(alpha = 0.5f))
             ) {
                 Text(
-                    text = if (result.isGroundedWithMaps) "✓ Informações Validadas via Google Maps" else "✓ Telemetria Local IPMet & CIIAGRO",
+                    text = if (result.isGroundedWithMaps) "✓ Informações Validadas via Google Maps" else "Diagnóstico por IA indisponível",
                     color = if (result.isGroundedWithMaps) Color(0xFF34D399) else Color(0xFF38BDF8),
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Medium,

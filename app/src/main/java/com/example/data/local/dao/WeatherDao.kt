@@ -33,6 +33,28 @@ interface WeatherDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertStations(stations: List<WeatherStationEntity>)
 
+    @Query("SELECT COUNT(*) FROM weather_stations")
+    suspend fun countStations(): Int
+
+    @Query("SELECT COUNT(*) FROM region_subscriptions")
+    suspend fun countSubscriptions(): Int
+
+    @Query("SELECT COUNT(*) FROM climate_trends")
+    suspend fun countClimateTrends(): Int
+
+    @Query("SELECT * FROM weather_alerts ORDER BY timestamp DESC")
+    suspend fun getAllAlertsSync(): List<WeatherAlertEntity>
+
+    @Query("DELETE FROM weather_alerts WHERE id LIKE 'inmet_%'")
+    suspend fun deleteInmetAlerts()
+
+    @Query("DELETE FROM ciiagro_records WHERE liveDataSource LIKE 'CIIAGRO%'")
+    suspend fun deleteLegacyCiiagroRecords()
+
+    /** Remove alertas fixos (alert_sp_*) gravados por versões antigas do app. */
+    @Query("DELETE FROM weather_alerts WHERE id LIKE 'alert_sp_%' OR id LIKE 'alert_test_%'")
+    suspend fun deleteSeedAlerts()
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertStation(station: WeatherStationEntity)
 

@@ -76,7 +76,7 @@ fun AgroClimaSection(
     val cultureOptions = listOf(
         "Cana-de-Açúcar",
         "Citrus (Laranja/Limão)",
-        "🌱 Rede CIIAGRO / IAC",
+        "🌱 Dados Agro (Open-Meteo)",
         "Café Paulista",
         "Soja / Grãos"
     )
@@ -93,7 +93,7 @@ fun AgroClimaSection(
     }
     // 1. Evapotranspiration reference (ET0 - Hargreaves / Penman simplified approx mm/day)
     val et0 = max(1.5, (0.0023 * (tempMean + 17.8) * 4.2 * (100 - rh) / 50.0 * radiationFactor) + (windKmH * 0.04))
-    val et0Formatted = String.format("%.1f", et0)
+    val et0Formatted = String.format(java.util.Locale("pt", "BR"), "%.1f", et0)
 
     // 2. Soil Moisture & Water Balance estimate (0-100% capacity)
     val estimatedSoilMoisture = min(98, max(20, (rh * 0.55 + station.rainVolumeMm * 4.2 - et0 * 1.5).toInt()))
@@ -235,7 +235,7 @@ fun AgroClimaSection(
                     border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF10B981).copy(alpha = 0.4f))
                 ) {
                     Text(
-                        text = "IPMet / IAC",
+                        text = "Open-Meteo",
                         color = Color(0xFF10B981),
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Bold,
@@ -562,7 +562,7 @@ fun AgroClimaSection(
             }
 
             // SPECIALIZED SECTION: REDE CIIAGRO / IAC
-            AnimatedVisibility(visible = selectedCulture.contains("CIIAGRO")) {
+            AnimatedVisibility(visible = selectedCulture.contains("Open-Meteo")) {
                 Column {
                     Surface(
                         shape = RoundedCornerShape(14.dp),
@@ -575,7 +575,7 @@ fun AgroClimaSection(
                                 Icon(Icons.Default.Agriculture, contentDescription = null, tint = Color(0xFF10B981), modifier = Modifier.size(20.dp))
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
-                                    text = "Rede Agrometeorológica CIIAGRO / IAC (${station.name})",
+                                    text = "Dados agrometeorológicos – Open-Meteo (${station.name})",
                                     color = Color(0xFF10B981),
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 13.sp
@@ -587,9 +587,9 @@ fun AgroClimaSection(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
-                                Text("Evapotranspiração Real (ETc):", color = Color(0xFF94A3B8), fontSize = 11.sp)
+                                Text("ET0 FAO (hoje):", color = Color(0xFF94A3B8), fontSize = 11.sp)
                                 Text(
-                                    text = if (ciiagroRecord != null) "${ciiagroRecord.et0MmDay} mm/dia" else "$et0Formatted mm/dia",
+                                    text = if (ciiagroRecord != null) "${ciiagroRecord.et0MmDay} mm/dia" else "—",
                                     color = Color(0xFF38BDF8),
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 11.sp
@@ -604,7 +604,7 @@ fun AgroClimaSection(
                             ) {
                                 Text("Radiação Solar:", color = Color(0xFF94A3B8), fontSize = 11.sp)
                                 Text(
-                                    text = if (ciiagroRecord != null) "${ciiagroRecord.solarRadiationMj} MJ/m²" else "19.5 MJ/m²",
+                                    text = if (ciiagroRecord != null) "${ciiagroRecord.solarRadiationMj} MJ/m²" else "—",
                                     color = Color(0xFFF59E0B),
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 11.sp
@@ -619,7 +619,7 @@ fun AgroClimaSection(
                             ) {
                                 Text("Balanço Hídrico do Solo:", color = Color(0xFF94A3B8), fontSize = 11.sp)
                                 Text(
-                                    text = if (ciiagroRecord != null) ciiagroRecord.soilWaterDeficitRisk else soilStatus,
+                                    text = ciiagroRecord?.soilWaterDeficitRisk ?: "—",
                                     color = Color(0xFF10B981),
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 11.sp
@@ -630,7 +630,7 @@ fun AgroClimaSection(
 
                             Text(
                                 text = ciiagroRecord?.cropManagementRecommendation
-                                    ?: "🌱 Diagnóstico CIIAGRO: Condições hídricas favoráveis na microrregião de ${station.name}. Manejo conservacionista do solo indicado.",
+                                    ?: "Dados indisponíveis (aguardando Open-Meteo).",
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 fontSize = 11.sp,
                                 lineHeight = 15.sp

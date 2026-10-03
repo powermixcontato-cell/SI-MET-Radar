@@ -118,7 +118,7 @@ fun ExpandedRadarMapDialog(
                         }
                         Column {
                             Text(
-                                text = "Radar Meteorológico IPMet",
+                                text = "Mapa de chuva prevista (Open-Meteo)",
                                 color = MaterialTheme.colorScheme.onSurface,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 15.sp
@@ -156,17 +156,7 @@ fun ExpandedRadarMapDialog(
                             )
                         }
 
-                        // Trajectory Toggle
-                        IconButton(
-                            onClick = onToggleTrajectories,
-                            modifier = Modifier.testTag("button_expanded_toggle_trajectories")
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Directions,
-                                contentDescription = "Alternar Trajetórias",
-                                tint = if (showTrajectories) Color(0xFF00E5FF) else MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
+                        // Botão de trajetórias removido (sem células de tempestade reais).
                     }
                 }
 
@@ -230,7 +220,7 @@ fun ExpandedRadarMapDialog(
                 }
 
                 // Storm Cell Selection Filter Chips
-                Row(
+                if (stormCells.isNotEmpty()) Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 12.dp, vertical = 4.dp),

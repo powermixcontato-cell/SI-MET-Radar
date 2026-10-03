@@ -23,6 +23,6 @@ data class CiiagroRecordEntity(
     val soilWaterDeficitRisk: String, // "Sem Déficit", "Atenção Leve", "Déficit Moderado", "Déficit Crítico"
     val cropManagementRecommendation: String,
     val forecastRain7DaysMm: Double,
-    val liveDataSource: String = "CIIAGRO / IAC - SP",
+    val liveDataSource: String = "Open-Meteo (estimativa)",
     val lastUpdated: Long = System.currentTimeMillis()
 )

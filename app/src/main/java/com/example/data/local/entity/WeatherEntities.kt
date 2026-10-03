@@ -110,3 +110,9 @@ data class UserPreferencesEntity(
     val activeStationId: String = "sao_paulo",
     val isOfflineModeForced: Boolean = false
 )
+
+/** true quando a estação já recebeu ao menos uma atualização real (lastUpdated = 0 → nunca). */
+fun WeatherStationEntity.hasRealData(): Boolean = lastUpdated > 0L
+
+/** Temperatura formatada ou "—" quando não há dado real. */
+fun WeatherStationEntity.tempLabel(): String = if (hasRealData()) "${currentTemp.toInt()}°C" else "—"

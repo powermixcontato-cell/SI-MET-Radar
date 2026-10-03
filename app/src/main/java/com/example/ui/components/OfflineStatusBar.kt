@@ -84,7 +84,7 @@ fun OfflineStatusBar(
                 Spacer(modifier = Modifier.width(6.dp))
                 Column {
                     Text(
-                        text = if (isForcedOffline) "Modo Offline Ativo (Banco Local Room)" else "Base IPMet Online / Sincronizado",
+                        text = if (isForcedOffline) "Modo Offline Ativo (Banco Local Room)" else "Online • Open-Meteo / INMET",
                         color = MaterialTheme.colorScheme.onSurface,
                         fontWeight = FontWeight.Bold,
                         fontSize = 11.sp

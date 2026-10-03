@@ -85,7 +85,7 @@ fun AgroSmartIntelligenceSection(
         "🍊 Citrus",
         "💧 Balanço Hídrico",
         "🚜 Pulverização",
-        "🌱 CIIAGRO / IAC"
+        "🌱 Dados Open-Meteo"
     )
 
     // Cálculos agrometeorológicos
@@ -632,12 +632,12 @@ private fun CleanCiiagroView(
     Column {
         CleanRowItem(
             icon = Icons.Default.Agriculture,
-            title = "Rede Agrometeorológica CIIAGRO / IAC",
-            statusText = "ATIVO SP",
+            title = "Dados agrometeorológicos (Open-Meteo)",
+            statusText = if (ciiagro != null) "ESTIMATIVA" else "—",
             statusColor = Color(0xFF10B981),
             detailText = ciiagro?.cropManagementRecommendation
-                ?: "Recomendação agrometeorológica oficial do IAC para ${station.name}.",
-            extraMetric = "Radiação Solar: ${ciiagro?.solarRadiationMj ?: 19.5} MJ/m² • ETo: ${ciiagro?.et0MmDay ?: 4.2} mm"
+                ?: "Dados indisponíveis para ${station.name} (aguardando Open-Meteo).",
+            extraMetric = "Radiação Solar: ${ciiagro?.solarRadiationMj ?: "—"} MJ/m² • ET0: ${ciiagro?.et0MmDay ?: "—"} mm • Fonte: Open-Meteo"
         )
     }
 }

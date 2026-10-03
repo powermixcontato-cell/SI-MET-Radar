@@ -18,6 +18,14 @@ import java.util.concurrent.TimeUnit
  */
 class GeminiMapsWeatherService {
 
+    companion object {
+        private const val TAG = "GeminiMapsWeather"
+        /** Nomes de modelo mantidos como no projeto original; não trocar sem confirmar que existem. */
+        const val PRIMARY_MODEL = "gemini-3.5-flash"
+        const val FALLBACK_MODEL = "gemini-2.5-flash"
+        const val UNAVAILABLE_LABEL = "Diagnóstico por IA indisponível"
+    }
+
     private val client = OkHttpClient.Builder()
         .connectTimeout(25, TimeUnit.SECONDS)
         .readTimeout(25, TimeUnit.SECONDS)
@@ -35,7 +43,8 @@ class GeminiMapsWeatherService {
     ): MapsRainPrecisionResult = withContext(Dispatchers.IO) {
         val apiKey = try {
             BuildConfig.GEMINI_API_KEY
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Log.w(TAG, "GEMINI_API_KEY ausente no BuildConfig", e)
             ""
         }
 
@@ -43,7 +52,7 @@ class GeminiMapsWeatherService {
         if (apiKey.isNotBlank() && apiKey != "MY_GEMINI_API_KEY") {
             try {
                 val result = callGeminiWithMapsGrounding(
-                    model = "gemini-3.5-flash",
+                    model = PRIMARY_MODEL,
                     apiKey = apiKey,
                     query = query,
                     latitude = latitude,
@@ -55,10 +64,10 @@ class GeminiMapsWeatherService {
                     return@withContext result
                 }
             } catch (e: Exception) {
-                Log.w("GeminiMapsWeather", "Gemini 3.5 Flash failed, attempting fallback model: ${e.localizedMessage}")
+                Log.w(TAG, "$PRIMARY_MODEL falhou, tentando $FALLBACK_MODEL", e)
                 try {
                     val fallbackResult = callGeminiWithMapsGrounding(
-                        model = "gemini-2.5-flash",
+                        model = FALLBACK_MODEL,
                         apiKey = apiKey,
                         query = query,
                         latitude = latitude,
@@ -70,12 +79,12 @@ class GeminiMapsWeatherService {
                         return@withContext fallbackResult
                     }
                 } catch (e2: Exception) {
-                    Log.e("GeminiMapsWeather", "Fallback Gemini model failed: ${e2.localizedMessage}")
+                    Log.e(TAG, "$FALLBACK_MODEL falhou", e2)
                 }
             }
         }
 
-        // Resilient Fallback: Real-time high-precision geospatial diagnostic using IPMet & CIIAGRO telemetry
+        // Sem IA disponível: nenhum texto interpretativo inventado, só os dados reais da estação
         return@withContext generateLocalPrecisionDiagnostic(
             query = query,
             latitude = latitude,
@@ -94,7 +103,8 @@ class GeminiMapsWeatherService {
         activeStormsSummary: String,
         nearbyStationSummary: String
     ): MapsRainPrecisionResult? {
-        val endpoint = "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent?key=$apiKey"
+        // Chave no header x-goog-api-key (não na URL, que aparece em logs/proxies)
+        val endpoint = "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent"
 
         val promptText = buildString {
             append("Você é o especialista meteorológico oficial do SI Met RADAR integrado com Google Maps.\n")
@@ -104,10 +114,10 @@ class GeminiMapsWeatherService {
                 append("COORDENADAS EXATAS DO USUÁRIO (GPS): Latitude: $latitude, Longitude: $longitude\n")
             }
             if (nearbyStationSummary.isNotBlank()) {
-                append("DADOS DA REDE IPMET/CIIAGRO PRÓXIMA: $nearbyStationSummary\n")
+                append("DADOS REAIS DA ESTAÇÃO MAIS PRÓXIMA (Open-Meteo): $nearbyStationSummary\n")
             }
             if (activeStormsSummary.isNotBlank()) {
-                append("CÉLULAS DE CHUVA DETECTADAS NO RADAR: $activeStormsSummary\n")
+                append("AVISOS OFICIAIS VIGENTES (INMET): $activeStormsSummary\n")
             }
             append("\nDIRETRIZES:")
             append("\n1. Identifique no Google Maps o ponto exato, bairro, acessos viários ou marcos conhecidos.")
@@ -153,29 +163,28 @@ class GeminiMapsWeatherService {
 
         val request = Request.Builder()
             .url(endpoint)
+            .header("x-goog-api-key", apiKey)
             .post(requestJson.toString().toRequestBody(jsonMediaType))
             .build()
 
-        val response = client.newCall(request).execute()
-        if (!response.isSuccessful) {
-            val errBody = response.body?.string() ?: ""
-            Log.w("GeminiMapsWeather", "API Error HTTP ${response.code}: $errBody")
-            return null
+        val (textPart, firstCandidate) = client.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) {
+                val errBody = response.body?.string() ?: ""
+                Log.w(TAG, "API Error HTTP ${response.code}: ${errBody.take(300)}")
+                return null
+            }
+            val respBody = response.body?.string() ?: return null
+            val root = JSONObject(respBody)
+            val candidates = root.optJSONArray("candidates") ?: return null
+            if (candidates.length() == 0) return null
+            val first = candidates.getJSONObject(0)
+            val content = first.optJSONObject("content") ?: return null
+            val parts = content.optJSONArray("parts") ?: return null
+            if (parts.length() == 0) return null
+            val t = parts.getJSONObject(0).optString("text", "")
+            if (t.isBlank()) return null
+            Pair(t, first)
         }
-
-        val respBody = response.body?.string() ?: return null
-        val root = JSONObject(respBody)
-
-        val candidates = root.optJSONArray("candidates") ?: return null
-        if (candidates.length() == 0) return null
-
-        val firstCandidate = candidates.getJSONObject(0)
-        val content = firstCandidate.optJSONObject("content") ?: return null
-        val parts = content.optJSONArray("parts") ?: return null
-        if (parts.length() == 0) return null
-
-        val textPart = parts.getJSONObject(0).optString("text", "")
-        if (textPart.isBlank()) return null
 
         // Extract grounding chunks or metadata if returned
         var groundedPlaces = listOf<String>()
@@ -213,37 +222,20 @@ class GeminiMapsWeatherService {
         activeStormsSummary: String,
         nearbyStationSummary: String
     ): MapsRainPrecisionResult {
-        val latStr = latitude?.let { "%.4f".format(it) } ?: "-22.3145"
-        val lonStr = longitude?.let { "%.4f".format(it) } ?: "-49.0587"
-
         val report = buildString {
-            append("📍 **Localização Focal:** $query (Lat: $latStr, Lon: $lonStr)\n\n")
-            append("🛰️ **Diagnóstico Espacial de Precisão:**\n")
-            if (nearbyStationSummary.isNotBlank()) {
-                append("• **Rede Meteorológica Local:** $nearbyStationSummary\n")
-            } else {
-                append("• **Rede Doppler IPMet:** Monitoramento ativo pelos radares de Bauru (Banda S) e Presidente Prudente (Banda C).\n")
-            }
-
-            if (activeStormsSummary.isNotBlank()) {
-                append("• **Refletividade de Radar:** $activeStormsSummary\n")
-                append("• **Previsão de Deslocamento:** Células convectivas monitoradas em tempo real com vetores de aproximação nas próximas 1 a 3 horas.\n")
-            } else {
-                append("• **Eco de Radar:** Nuvens com refletividade baixa/estável (<25 dBZ). Probabilidade reduzida de tempestade severa imediata no perímetro central.\n")
-            }
-
-            append("\n🚗 **Impacto em Vias e Logística:**\n")
-            append("• Condições de aderência na pista normais com pontos de umidade moderada.\n")
-            append("• Alerta preventivo para declives e vales com histórico de acúmulo de águas pluviais.\n\n")
-            append("💡 **Recomendação:** Acompanhe a variação do Doppler no mapa em tempo real para detecção antecipada de rajadas.")
+            append("**$UNAVAILABLE_LABEL** (sem chave do Gemini ou falha na API).\n\n")
+            append("Dados reais disponíveis para $query")
+            if (latitude != null && longitude != null) append(" (Lat ${"%.4f".format(latitude)}, Lon ${"%.4f".format(longitude)})")
+            append(":\n")
+            append(if (nearbyStationSummary.isNotBlank()) "• $nearbyStationSummary (Fonte: Open-Meteo)\n" else "• Sem dados da estação.\n")
+            if (activeStormsSummary.isNotBlank()) append("• $activeStormsSummary\n")
         }
-
         return MapsRainPrecisionResult(
             locationName = query,
             reportText = report,
             isGroundedWithMaps = false,
-            modelUsed = "IPMet Precision Engine (Local Telemetry)",
-            groundedPlaces = listOf(query),
+            modelUsed = UNAVAILABLE_LABEL,
+            groundedPlaces = emptyList(),
             timestamp = System.currentTimeMillis()
         )
     }

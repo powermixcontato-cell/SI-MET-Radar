@@ -1,6 +1,9 @@
 package com.example.ui.components
 
+import androidx.lifecycle.repeatOnLifecycle
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -10,6 +13,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -51,12 +55,14 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -71,10 +77,13 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Paint
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
@@ -97,6 +106,11 @@ import com.example.data.local.entity.WeatherStationEntity
 import com.example.util.safeDrawText
 import com.example.viewmodel.StormCellTrajectory
 import kotlin.math.max
+import com.example.ui.map.*
+import androidx.compose.foundation.layout.PaddingValues
+import java.util.Locale
+import com.example.data.local.entity.hasRealData
+import androidx.compose.material3.minimumInteractiveComponentSize
 import kotlin.math.min
 import kotlin.math.cos
 import kotlin.math.sin
@@ -105,10 +119,6 @@ import kotlin.math.sqrt
 // SP Coordinate Bounds:
 // Lat: ~ -19.7 (North) to -25.3 (South) -> Span ~ 5.6
 // Lon: ~ -53.1 (West) to -44.2 (East) -> Span ~ 8.9
-private const val MIN_LON = -53.2
-private const val MAX_LON = -44.0
-private const val MIN_LAT = -25.2
-private const val MAX_LAT = -19.8
 
 data class WindyStreamParticle(
     var x: Float,
@@ -191,29 +201,53 @@ fun IpmetRadarCanvas(
         }
     }
 
+    // Vento real (Open-Meteo) por estação: direção meteorológica (de onde vem) + velocidade km/h
+    val windStations = remember(stations) {
+        stations.filter { it.lastUpdated > 0L }.mapNotNull { st ->
+            val fromDeg = com.example.data.remote.compassToDegrees(st.windDirection) ?: return@mapNotNull null
+            val towardsRad = Math.toRadians(fromDeg + 180.0) // sentido do movimento = de onde vem + 180°
+            floatArrayOf(st.lat.toFloat(), st.lon.toFloat(), sin(towardsRad).toFloat(), (-cos(towardsRad)).toFloat(), st.windSpeed.toFloat())
+        }
+    }
+    val windStationsState = rememberUpdatedState(windStations)
+    val hasWindData = windStations.isNotEmpty()
+
     var particleTick by remember { mutableIntStateOf(0) }
-    androidx.compose.runtime.LaunchedEffect(isPlaying, isEnergySaver) {
-        if (!isEnergySaver) {
+    androidx.compose.runtime.LaunchedEffect(isPlaying, isEnergySaver, hasWindData) {
+        if (!isEnergySaver && hasWindData) {
             val rng = java.util.Random()
             while (isActive) {
                 androidx.compose.runtime.withFrameNanos {
                     val w = if (canvasWidth > 50f) canvasWidth else 800f
                     val h = if (canvasHeight > 50f) canvasHeight else 600f
+                    val ws = windStationsState.value
+                    val frameProj = SpProjection(w, h, zoomScale, panOffsetX, panOffsetY, RADAR_PAD)
+                    val wsX = FloatArray(ws.size) { frameProj.x(ws[it][1].toDouble()) }
+                    val wsY = FloatArray(ws.size) { frameProj.y(ws[it][0].toDouble()) }
                     windParticles.forEach { p ->
                         p.prevX = p.x
                         p.prevY = p.y
-                        val angleRad = 2.85f + (p.y / h - 0.5f) * 0.35f
-                        val effectiveSpd = p.speed * (if (isPlaying) 1.25f else 0.45f) * zoomScale.coerceIn(0.8f, 2.5f)
-                        p.x += kotlin.math.cos(angleRad) * effectiveSpd
-                        p.y += kotlin.math.sin(angleRad) * effectiveSpd
+                        // Estação mais próxima da partícula (em coordenadas de tela)
+                        var best: FloatArray? = null
+                        var bestD = Float.MAX_VALUE
+                        for (k in ws.indices) {
+                            val d = (wsX[k] - p.x) * (wsX[k] - p.x) + (wsY[k] - p.y) * (wsY[k] - p.y)
+                            if (d < bestD) { bestD = d; best = ws[k] }
+                        }
+                        val b = best
+                        if (b != null) {
+                            p.speed = (b[4] / 8.3f).coerceIn(0.6f, 7f) // km/h → px/quadro
+                            val effectiveSpd = p.speed * (if (isPlaying) 1.25f else 0.45f) * zoomScale.coerceIn(0.8f, 2.5f)
+                            p.x += b[2] * effectiveSpd
+                            p.y += b[3] * effectiveSpd
+                        }
                         p.age++
                         if (p.x < -30f || p.y < -30f || p.x > w + 30f || p.y > h + 30f || p.age > p.maxLife) {
-                            p.x = w + rng.nextFloat() * 40f
+                            p.x = rng.nextFloat() * w
                             p.y = rng.nextFloat() * h
                             p.prevX = p.x
                             p.prevY = p.y
                             p.age = 0
-                            p.speed = 2.0f + rng.nextFloat() * 3.5f
                             p.maxLife = 35 + rng.nextInt(55)
                         }
                     }
@@ -225,10 +259,14 @@ fun IpmetRadarCanvas(
 
     // Live clock ticking every second to track real-time models and radar steps
     var liveTimeMillis by remember { mutableLongStateOf(System.currentTimeMillis()) }
-    androidx.compose.runtime.LaunchedEffect(Unit) {
-        while (true) {
-            liveTimeMillis = System.currentTimeMillis()
-            kotlinx.coroutines.delay(1000L)
+    // Relógio de 30 s que só roda com a tela visível (RESUMED); antes atualizava a cada 1 s sempre
+    val clockLifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    androidx.compose.runtime.LaunchedEffect(clockLifecycleOwner) {
+        clockLifecycleOwner.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.RESUMED) {
+            while (true) {
+                liveTimeMillis = System.currentTimeMillis()
+                kotlinx.coroutines.delay(30_000L)
+            }
         }
     }
 
@@ -236,13 +274,10 @@ fun IpmetRadarCanvas(
     val centerOnCoordinates: (Double, Double, Float) -> Unit = { targetLat, targetLon, targetZoom ->
         val w = if (canvasWidth > 50f) canvasWidth else 800f
         val h = if (canvasHeight > 50f) canvasHeight else 600f
-        val normX = ((targetLon - MIN_LON) / (MAX_LON - MIN_LON)).coerceIn(0.0, 1.0)
-        val normY = ((MAX_LAT - targetLat) / (MAX_LAT - MIN_LAT)).coerceIn(0.0, 1.0)
-        val baseX = (normX * (w - 60f) + 30f).toFloat()
-        val baseY = (normY * (h - 60f) + 30f).toFloat()
+        val (px, py) = SpProjection(w, h, paddingPx = RADAR_PAD).panToCenter(targetLat, targetLon, targetZoom)
         zoomScale = targetZoom
-        panOffsetX = (w / 2f - baseX) * targetZoom
-        panOffsetY = (h / 2f - baseY) * targetZoom
+        panOffsetX = px
+        panOffsetY = py
     }
 
     // Automatic focus & zoom when a station is selected or searched
@@ -286,7 +321,24 @@ fun IpmetRadarCanvas(
         label = "SweepAngle"
     )
 
+    // Interpolação visual suave entre quadros (só desloca as manchas; trajetória usa o timeStep inteiro)
+    val animatedStep by animateFloatAsState(
+        targetValue = timeStep.toFloat(),
+        animationSpec = tween(durationMillis = if (isEnergySaver) 0 else 600, easing = FastOutSlowInEasing),
+        label = "RadarStepAnim"
+    )
+
     val textMeasurer = rememberTextMeasurer()
+
+    // Campos contínuos (IDW) calculados uma vez por atualização de dados — só estações com dado REAL
+    val realStations = remember(stations) { stations.filter { it.hasRealData() } }
+    val rainImage = remember(realStations) {
+        val pts = realStations.map { FieldPoint(it.lat, it.lon, it.dbzReflectivity.toFloat()) }
+        if (pts.none { it.value >= 10f }) null else ScalarField.idw(pts)?.toImageBitmap(MapRamp.Dbz, 0.85f)
+    }
+    val tempImage = remember(realStations) {
+        ScalarField.idw(realStations.map { FieldPoint(it.lat, it.lon, it.currentTemp.toFloat()) })?.toImageBitmap(MapRamp.TempC, 0.6f)
+    }
     val scrollState = androidx.compose.foundation.rememberScrollState()
 
     Column(
@@ -305,53 +357,41 @@ fun IpmetRadarCanvas(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 6.dp),
+                .padding(horizontal = 16.dp, vertical = 2.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
+            CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 40.dp) {
             Row(
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier
+                    .weight(1f, fill = false)
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 FilterChip(
                     selected = activeCenter == "bauru",
                     onClick = { onCenterChanged("bauru") },
-                    label = { Text("Bauru", fontSize = 11.sp) },
+                    label = { Text("Bauru", fontSize = 11.sp, maxLines = 1, softWrap = false) },
                     colors = FilterChipDefaults.filterChipColors(
                         selectedContainerColor = MaterialTheme.colorScheme.primary,
                         selectedLabelColor = MaterialTheme.colorScheme.onPrimary
                     ),
-                    modifier = Modifier.testTag("chip_radar_bauru")
+                    modifier = Modifier.height(32.dp).testTag("chip_radar_bauru")
                 )
                 FilterChip(
                     selected = activeCenter == "presidente_prudente",
                     onClick = { onCenterChanged("presidente_prudente") },
-                    label = { Text("P. Prudente", fontSize = 11.sp) },
+                    label = { Text("P. Prudente", fontSize = 11.sp, maxLines = 1, softWrap = false) },
                     colors = FilterChipDefaults.filterChipColors(
                         selectedContainerColor = MaterialTheme.colorScheme.primary,
                         selectedLabelColor = MaterialTheme.colorScheme.onPrimary
                     ),
-                    modifier = Modifier.testTag("chip_radar_prudente")
+                    modifier = Modifier.height(32.dp).testTag("chip_radar_prudente")
                 )
 
-                FilterChip(
-                    selected = showTrajectories,
-                    onClick = onToggleTrajectories,
-                    label = { Text("Trajetórias", fontSize = 11.sp) },
-                    leadingIcon = {
-                        Icon(
-                            imageVector = Icons.Default.Directions,
-                            contentDescription = null,
-                            tint = if (showTrajectories) MaterialTheme.colorScheme.onPrimary else Color(0xFF00E5FF),
-                            modifier = Modifier.size(14.dp)
-                        )
-                    },
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = Color(0xFF0284C7),
-                        selectedLabelColor = Color.White
-                    ),
-                    modifier = Modifier.testTag("chip_toggle_trajectories")
-                )
+                // Chip "Trajetórias" removido: não há células de tempestade reais para rastrear.
+            }
             }
 
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -371,7 +411,7 @@ fun IpmetRadarCanvas(
                         )
                         Spacer(modifier = Modifier.width(4.dp))
                         Text(
-                            "AO VIVO",
+                            "OPEN-METEO",
                             color = Color(0xFF00E676),
                             fontSize = 10.sp,
                             fontWeight = FontWeight.Bold
@@ -384,7 +424,7 @@ fun IpmetRadarCanvas(
                         onClick = onOpenExpandedMap,
                         modifier = Modifier
                             .padding(start = 4.dp)
-                            .size(32.dp)
+                            .size(40.dp)
                             .testTag("button_open_expanded_radar")
                     ) {
                         Icon(
@@ -398,23 +438,26 @@ fun IpmetRadarCanvas(
         }
 
         // Map Format Selector Row (Panorâmico 16:9 / Circular PPI 360° / Cartográfico)
+        CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 40.dp) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 2.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                .horizontalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp, vertical = 0.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "Formato:",
+                text = mdInline("**Formato** ·"),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 11.sp,
-                fontWeight = FontWeight.Medium
+                maxLines = 1,
+                softWrap = false
             )
             FilterChip(
                 selected = effectiveMapFormat == 0,
                 onClick = { setFormat(0) },
-                label = { Text("Windy Vento & Chuva", fontSize = 11.sp, fontWeight = FontWeight.Bold) },
+                label = { Text("Windy Vento & Chuva", fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false) },
                 leadingIcon = {
                     Icon(Icons.Default.WindPower, contentDescription = null, modifier = Modifier.size(13.dp))
                 },
@@ -422,12 +465,12 @@ fun IpmetRadarCanvas(
                     selectedContainerColor = Color(0xFF0284C7),
                     selectedLabelColor = Color.White
                 ),
-                modifier = Modifier.testTag("chip_format_windy")
+                modifier = Modifier.height(32.dp).testTag("chip_format_windy")
             )
             FilterChip(
                 selected = effectiveMapFormat == 1,
                 onClick = { setFormat(1) },
-                label = { Text("Circular PPI 360°", fontSize = 11.sp) },
+                label = { Text("Circular PPI 360°", fontSize = 11.sp, maxLines = 1, softWrap = false) },
                 leadingIcon = {
                     Icon(Icons.Default.Radar, contentDescription = null, modifier = Modifier.size(13.dp))
                 },
@@ -435,12 +478,12 @@ fun IpmetRadarCanvas(
                     selectedContainerColor = Color(0xFF00E5FF),
                     selectedLabelColor = Color.Black
                 ),
-                modifier = Modifier.testTag("chip_format_circular")
+                modifier = Modifier.height(32.dp).testTag("chip_format_circular")
             )
             FilterChip(
                 selected = effectiveMapFormat == 2,
                 onClick = { setFormat(2) },
-                label = { Text("Topográfico SP", fontSize = 11.sp) },
+                label = { Text("Topográfico SP", fontSize = 11.sp, maxLines = 1, softWrap = false) },
                 leadingIcon = {
                     Icon(Icons.Default.Map, contentDescription = null, modifier = Modifier.size(13.dp))
                 },
@@ -448,28 +491,32 @@ fun IpmetRadarCanvas(
                     selectedContainerColor = Color(0xFF10B981),
                     selectedLabelColor = Color.White
                 ),
-                modifier = Modifier.testTag("chip_format_cartographic")
+                modifier = Modifier.height(32.dp).testTag("chip_format_cartographic")
             )
+        }
         }
 
         // Map Background Theme Selector Row: Black & Blue / Terrestre / White
+        CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 40.dp) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 2.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                .horizontalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp, vertical = 0.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "Fundo:",
+                text = mdInline("**Fundo** ·"),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 11.sp,
-                fontWeight = FontWeight.Medium
+                maxLines = 1,
+                softWrap = false
             )
             FilterChip(
                 selected = effectiveBgTheme == 0,
                 onClick = { setBgTheme(0) },
-                label = { Text("Black & Blue", fontSize = 10.sp, fontWeight = if (effectiveBgTheme == 0) FontWeight.Bold else FontWeight.Normal) },
+                label = { Text("Black & Blue", fontSize = 10.sp, maxLines = 1, softWrap = false, fontWeight = if (effectiveBgTheme == 0) FontWeight.Bold else FontWeight.Normal) },
                 leadingIcon = {
                     Box(
                         modifier = Modifier
@@ -482,12 +529,12 @@ fun IpmetRadarCanvas(
                     selectedContainerColor = Color(0xFF0C223A),
                     selectedLabelColor = Color(0xFF38BDF8)
                 ),
-                modifier = Modifier.testTag("chip_theme_black_blue")
+                modifier = Modifier.height(32.dp).testTag("chip_theme_black_blue")
             )
             FilterChip(
                 selected = effectiveBgTheme == 1,
                 onClick = { setBgTheme(1) },
-                label = { Text("Terrestre 🌍", fontSize = 10.sp, fontWeight = if (effectiveBgTheme == 1) FontWeight.Bold else FontWeight.Normal) },
+                label = { Text("Terrestre 🌍", fontSize = 10.sp, maxLines = 1, softWrap = false, fontWeight = if (effectiveBgTheme == 1) FontWeight.Bold else FontWeight.Normal) },
                 leadingIcon = {
                     Box(
                         modifier = Modifier
@@ -500,12 +547,12 @@ fun IpmetRadarCanvas(
                     selectedContainerColor = Color(0xFF14532D),
                     selectedLabelColor = Color(0xFF86EFAC)
                 ),
-                modifier = Modifier.testTag("chip_theme_terrestre")
+                modifier = Modifier.height(32.dp).testTag("chip_theme_terrestre")
             )
             FilterChip(
                 selected = effectiveBgTheme == 2,
                 onClick = { setBgTheme(2) },
-                label = { Text("White ⚪", fontSize = 10.sp, fontWeight = if (effectiveBgTheme == 2) FontWeight.Bold else FontWeight.Normal) },
+                label = { Text("White ⚪", fontSize = 10.sp, maxLines = 1, softWrap = false, fontWeight = if (effectiveBgTheme == 2) FontWeight.Bold else FontWeight.Normal) },
                 leadingIcon = {
                     Box(
                         modifier = Modifier
@@ -518,8 +565,9 @@ fun IpmetRadarCanvas(
                     selectedContainerColor = Color(0xFFE2E8F0),
                     selectedLabelColor = Color(0xFF0F172A)
                 ),
-                modifier = Modifier.testTag("chip_theme_white")
+                modifier = Modifier.height(32.dp).testTag("chip_theme_white")
             )
+        }
         }
 
         val boxHeight = when (effectiveMapFormat) {
@@ -577,10 +625,10 @@ fun IpmetRadarCanvas(
                         detectTapGestures { tapOffset ->
                             val w = canvasWidth.takeIf { it > 50f } ?: 800f
                             val h = canvasHeight.takeIf { it > 50f } ?: 600f
-                            val normX = ((tapOffset.x - panOffsetX) / (w * zoomScale)).coerceIn(0f, 1f)
-                            val normY = ((tapOffset.y - panOffsetY) / (h * zoomScale)).coerceIn(0f, 1f)
-                            val tapLon = MIN_LON + normX * (MAX_LON - MIN_LON)
-                            val tapLat = MAX_LAT - normY * (MAX_LAT - MIN_LAT)
+                            // Inversa EXATA da projeção do desenho (antes não batia com o zoom/pan e errava a cidade)
+                            val tapProj = SpProjection(w, h, zoomScale, panOffsetX, panOffsetY, RADAR_PAD)
+                            val tapLon = tapProj.lon(tapOffset.x)
+                            val tapLat = tapProj.lat(tapOffset.y)
                             val closest = stations.minByOrNull { st ->
                                 val dLat = st.lat - tapLat
                                 val dLon = st.lon - tapLon
@@ -592,11 +640,15 @@ fun IpmetRadarCanvas(
                         }
                     }
                     .pointerInput(Unit) {
-                        detectTransformGestures { _, pan, zoom, _ ->
+                        detectTransformGestures { centroid, pan, zoom, _ ->
                             val newZoom = (zoomScale * zoom).coerceIn(0.8f, 6.0f)
+                            val (px, py) = SpProjection.gesturePan(
+                                canvasWidth, canvasHeight, zoomScale, newZoom,
+                                panOffsetX, panOffsetY, centroid.x, centroid.y, pan.x, pan.y
+                            )
                             zoomScale = newZoom
-                            panOffsetX += pan.x
-                            panOffsetY += pan.y
+                            panOffsetX = px
+                            panOffsetY = py
                         }
                     }
                     .testTag("radar_interactive_canvas")
@@ -605,127 +657,74 @@ fun IpmetRadarCanvas(
                     val w = size.width
                     val h = size.height
 
-                // Base Canvas / Ocean / Outer Atmosphere according to background theme
-                when (effectiveBgTheme) {
-                    0 -> { // Black & Blue
-                        drawRect(
-                            brush = Brush.radialGradient(
-                                colors = listOf(Color(0xFF081C33), Color(0xFF030A14)),
-                                center = Offset(w * 0.45f, h * 0.45f),
-                                radius = (w * 0.9f).coerceAtLeast(300f)
-                            ),
-                            size = Size(w, h)
-                        )
-                    }
-                    1 -> { // Terrestre (Oceano Atlântico em gradiente marinho real)
-                        drawRect(
-                            brush = Brush.verticalGradient(
-                                colors = listOf(Color(0xFF0D253A), Color(0xFF143B5C), Color(0xFF0E2233)),
-                                startY = 0f,
-                                endY = h
-                            ),
-                            size = Size(w, h)
-                        )
-                    }
-                    2 -> { // White (Céu e oceano em azul cartográfico suave)
-                        drawRect(
-                            brush = Brush.verticalGradient(
-                                colors = listOf(Color(0xFFE2F0FD), Color(0xFFD6E9FA)),
-                                startY = 0f,
-                                endY = h
-                            ),
-                            size = Size(w, h)
-                        )
-                    }
-                }
-
-                // Formato Cartográfico: Desenha malha viária, rios e coordenadas
+                // 1. Mapa-base comum (contorno IBGE, oceano, vizinhos, grade, rios) — ui/map/MapDrawing.kt
+                val proj = SpProjection(w, h, zoomScale, panOffsetX, panOffsetY, RADAR_PAD)
+                val mapTheme = MapTheme.of(effectiveBgTheme)
+                val statePath = drawSpBasemap(
+                    proj, mapTheme, textMeasurer,
+                    showRivers = effectiveMapFormat != 2,
+                    showGrid = effectiveMapFormat != 2
+                )
+                // Formato Cartográfico: grade com coordenadas, rios e rodovias
                 if (effectiveMapFormat == 2) {
                     drawCartographicBasemap(w, h, zoomScale, panOffsetX, panOffsetY, textMeasurer, effectiveBgTheme)
                 }
 
-                // Formato 0 (Windy): Camada Térmica se selecionada
+                // 2. Campo contínuo interpolado (IDW) a partir da previsão real por cidade:
+                //    camada Temp (Windy) = temperatura; demais = chuva (dBZ estimado pela taxa de chuva prevista)
                 if (effectiveMapFormat == 0 && windyLayer == 2) {
-                    drawRect(
-                        brush = Brush.linearGradient(
-                            colors = listOf(
-                                Color(0x33FF5722),
-                                Color(0x33FF9800),
-                                Color(0x224CAF50),
-                                Color(0x2203A9F4)
-                            ),
-                            start = Offset(0f, 0f),
-                            end = Offset(w, h)
-                        ),
-                        size = Size(w, h)
-                    )
+                    tempImage?.let { drawScalarField(it, proj, statePath) }
+                } else if (!(effectiveMapFormat == 0 && windyLayer == 0 && hasWindData && rainImage == null)) {
+                    rainImage?.let { drawScalarField(it, proj, statePath) }
                 }
+                drawSpOutline(statePath, mapTheme)
 
-                // 1. Draw São Paulo state border and counties grid (IPMet Style)
-                drawSpBoundary(w, h, zoomScale, panOffsetX, panOffsetY, effectiveBgTheme, textMeasurer)
-
-                // 2. Windy Wind Streamlines Particle System
-                if (effectiveMapFormat == 0 && windyLayer != 1) {
+                // Partículas de vento (Windy) por cima do campo
+                if (effectiveMapFormat == 0 && windyLayer != 1 && hasWindData) {
                     drawWindyWindParticles(windParticles, w, h, effectiveBgTheme)
                 }
 
-                // 3. Draw Doppler Radar Range Rings & Azimuth Crosshairs (Authentic IPMet 60/120/240/360/480 km)
-                val centerX = mapLonToX(radarCenterLon, w, zoomScale, panOffsetX)
-                val centerY = mapLatToY(radarCenterLat, h, zoomScale, panOffsetY)
+                // 3. Anéis de alcance do radar IPMet em km REAIS (antes eram frações da largura da tela)
+                val centerX = mapLonToX(radarCenterLon, w, h, zoomScale, panOffsetX)
+                val centerY = mapLatToY(radarCenterLat, w, h, zoomScale, panOffsetY)
+                val kmPx = proj.pxPerKm
 
-                // Formato Circular PPI 360°: Mostrador com graduação azimutal
                 if (effectiveMapFormat == 1) {
-                    drawCircularPpiScope(w, h, textMeasurer, centerX, centerY, effectiveSweep, isPlaying)
+                    drawCircularPpiScope(w, h, textMeasurer, centerX, centerY, effectiveSweep, isPlaying, 240f * kmPx)
                 }
 
                 val ringColors = when (effectiveBgTheme) {
-                    1 -> Color(0xFFFEF08A).copy(alpha = 0.70f)
-                    2 -> Color(0xFF475569).copy(alpha = 0.80f)
-                    else -> Color(0xFF1E3A5F).copy(alpha = 0.85f)
+                    1 -> Color(0xFFFEF08A).copy(alpha = 0.55f)
+                    2 -> Color(0xFF475569).copy(alpha = 0.60f)
+                    else -> Color(0xFF38BDF8).copy(alpha = 0.40f)
                 }
-                val ringRadii = listOf(w * 0.12f * zoomScale, w * 0.24f * zoomScale, w * 0.38f * zoomScale, w * 0.52f * zoomScale)
-                val ringLabels = listOf("60 km", "120 km", "240 km", "360 km")
+                val ringKm = listOf(60f, 120f, 240f)
                 val ringTextColor = when (effectiveBgTheme) {
                     1 -> Color(0xFFFEF9C3)
                     2 -> Color(0xFF0F172A)
                     else -> Color(0xFF94A3B8)
                 }
-
-                ringRadii.forEachIndexed { idx, r ->
+                ringKm.forEach { km ->
+                    val r = km * kmPx
                     drawCircle(
                         color = ringColors,
                         radius = r,
                         center = Offset(centerX, centerY),
-                        style = Stroke(width = 1.3f, pathEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 4f), 0f))
+                        style = Stroke(width = 1.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(8f, 6f), 0f))
                     )
-                    // Ring labels with high-contrast background
-                    safeDrawText(
-                        textMeasurer = textMeasurer,
-                        text = ringLabels[idx],
-                        topLeft = Offset(centerX + r + 4f, centerY - 14f),
-                        style = TextStyle(color = ringTextColor, fontSize = 9.sp, fontWeight = FontWeight.SemiBold)
-                    )
+                    // rótulos dos anéis são desenhados DEPOIS dos rótulos das cidades, só onde houver espaço (declutter)
                 }
-
-                // Azimuth Radians / Crosshairs (IPMet standard N-S / W-E / NE-SW / NW-SE)
-                drawLine(
-                    color = ringColors,
-                    start = Offset(centerX - w * 0.54f * zoomScale, centerY),
-                    end = Offset(centerX + w * 0.54f * zoomScale, centerY),
-                    strokeWidth = 1.2f
-                )
-                drawLine(
-                    color = ringColors,
-                    start = Offset(centerX, centerY - h * 0.54f * zoomScale),
-                    end = Offset(centerX, centerY + h * 0.54f * zoomScale),
-                    strokeWidth = 1.2f
-                )
+                val crossLen = 240f * kmPx
+                drawLine(ringColors, Offset(centerX - crossLen, centerY), Offset(centerX + crossLen, centerY), strokeWidth = 1f)
+                drawLine(ringColors, Offset(centerX, centerY - crossLen), Offset(centerX, centerY + crossLen), strokeWidth = 1f)
 
                 // 3. Draw Simulated Reflectivity Rain Clusters & Storm Cell Trajectories
                 drawRadarReflectivityClusters(
                     w = w,
                     h = h,
+                    stations = stations,
                     timeStep = timeStep,
+                    animatedStep = animatedStep,
                     isEnergySaver = isEnergySaver,
                     stormCells = stormCells,
                     showTrajectories = showTrajectories,
@@ -739,7 +738,7 @@ fun IpmetRadarCanvas(
                 // 4. Draw Rotating Doppler Radar Sweep Beam (if not paused or energy saving disabled)
                 if (isPlaying || !isEnergySaver) {
                     val sweepRad = Math.toRadians(effectiveSweep.toDouble())
-                    val sweepLen = w * 0.54f * zoomScale
+                    val sweepLen = 240f * kmPx
                     val sweepEndX = centerX + (cos(sweepRad) * sweepLen).toFloat()
                     val sweepEndY = centerY + (sin(sweepRad) * sweepLen).toFloat()
 
@@ -788,120 +787,110 @@ fun IpmetRadarCanvas(
                     center = Offset(centerX, centerY)
                 )
 
-                // 6. Draw City Stations Pins (Melhoria de visualização e destaque)
+                // 6. Pinos e rótulos das cidades: nome COMPLETO + valor em pílula separada, sem sobreposição
                 stations.forEach { st ->
-                    val sx = mapLonToX(st.lon, w, zoomScale, panOffsetX)
-                    val sy = mapLatToY(st.lat, h, zoomScale, panOffsetY)
-                    val isCurrent = st.id == selectedStation?.id
-                    val isBarretos = st.id == "barretos" || st.name.contains("Barretos", ignoreCase = true)
-
-                    // Station Dot & Alert Colors
-                    val pinColor = when {
-                        st.dbzReflectivity >= 50 -> Color(0xFFFF1744) // Severe (Vermelho)
-                        st.dbzReflectivity >= 40 -> Color(0xFFFF9100) // Moderate (Laranja)
-                        st.dbzReflectivity >= 25 -> Color(0xFFFFD600) // Light (Amarelo)
-                        isBarretos -> Color(0xFF38BDF8)
-                        else -> Color(0xFF00E5FF)
-                    }
-
-                    // Outer halo if current or Barretos
-                    if (isCurrent || isBarretos) {
-                        drawCircle(
-                            color = (if (isBarretos) Color(0xFF38BDF8) else pinColor).copy(alpha = 0.35f),
-                            radius = (if (isBarretos) 14f else 11f) * zoomScale.coerceIn(0.9f, 1.8f),
-                            center = Offset(sx, sy)
-                        )
-                        drawCircle(
-                            color = Color.White,
-                            radius = if (isBarretos) 6.5f else 5.5f,
-                            center = Offset(sx, sy)
-                        )
-                    }
-
-                    // Station Center Pin
-                    drawCircle(
-                        color = pinColor,
-                        radius = if (isCurrent || isBarretos) 5f else 3.8f,
-                        center = Offset(sx, sy)
-                    )
-
-                    // High-contrast background pill for city labels (crucial for map readability)
-                    val labelText = if (isBarretos) "★ Barretos ${st.currentTemp.toInt()}°" else "${st.name} ${st.currentTemp.toInt()}°"
-                    val textLayout = textMeasurer.measure(
-                        text = labelText,
-                        style = TextStyle(
-                            fontSize = if (isCurrent || isBarretos) 10.sp else 9.sp,
-                            fontWeight = if (isCurrent || isBarretos) FontWeight.Bold else FontWeight.Medium
-                        )
-                    )
-
-                    val pillLeft = sx + 7f
-                    val pillTop = sy - 14f
-                    val pillWidth = textLayout.size.width + 10f
-                    val pillHeight = textLayout.size.height + 4f
-
-                    // High-contrast background pill for city labels
-                    val pillBgColor = when (effectiveBgTheme) {
-                        2 -> Color(0xFFFFFFFF).copy(alpha = 0.94f)
-                        1 -> Color(0xFF0C2417).copy(alpha = 0.92f)
-                        else -> Color(0xFF0A192F).copy(alpha = 0.88f)
-                    }
-                    val pillBorderColor = when (effectiveBgTheme) {
-                        2 -> if (isBarretos) Color(0xFF0284C7) else if (isCurrent) Color(0xFF0F172A) else Color(0xFF94A3B8)
-                        1 -> if (isBarretos) Color(0xFF38BDF8) else if (isCurrent) Color(0xFF86EFAC) else Color(0xFF4ADE80).copy(alpha = 0.5f)
-                        else -> if (isBarretos) Color(0xFF38BDF8) else pinColor
-                    }
-                    val cityTextColor = when (effectiveBgTheme) {
-                        2 -> if (isBarretos) Color(0xFF0284C7) else if (isCurrent) Color(0xFF0F172A) else Color(0xFF1E293B)
-                        1 -> if (isBarretos) Color(0xFF7DD3FC) else if (isCurrent) Color.White else Color(0xFFF0FDF4)
-                        else -> if (isBarretos) Color(0xFF38BDF8) else if (isCurrent) Color.White else Color(0xFFE2E8F0)
-                    }
-
-                    // Draw contrast pill behind text
-                    drawRoundRect(
-                        color = pillBgColor,
-                        topLeft = Offset(pillLeft - 4f, pillTop - 2f),
-                        size = androidx.compose.ui.geometry.Size(pillWidth, pillHeight),
-                        cornerRadius = CornerRadius(4f, 4f)
-                    )
-                    drawRoundRect(
-                        color = pillBorderColor,
-                        topLeft = Offset(pillLeft - 4f, pillTop - 2f),
-                        size = androidx.compose.ui.geometry.Size(pillWidth, pillHeight),
-                        cornerRadius = CornerRadius(4f, 4f),
-                        style = Stroke(width = if (isBarretos || isCurrent) 1.2f else 0.8f)
-                    )
-
-                    // Draw City Label Text
-                    safeDrawText(
-                        textMeasurer = textMeasurer,
-                        text = labelText,
-                        topLeft = Offset(pillLeft, pillTop),
-                        style = TextStyle(
-                            color = cityTextColor,
-                            fontSize = if (isCurrent || isBarretos) 10.sp else 9.sp,
-                            fontWeight = if (isCurrent || isBarretos) FontWeight.Bold else FontWeight.Medium
-                        )
-                    )
-
-                    // Rain Cloud on Map when Raining or High Rain Probability
-                    val isRainingHere = st.rainProbability >= 40 || st.rainVolumeMm > 0.0 || st.dbzReflectivity >= 25 || st.iconType == "rain" || st.iconType == "storm"
+                    val isRainingHere = st.hasRealData() && (st.dbzReflectivity >= 10 || st.iconType == "rain" || st.iconType == "storm")
                     if (isRainingHere) {
-                        val isStorm = st.dbzReflectivity >= 45 || st.iconType == "storm"
                         drawRainCloud(
-                            cx = sx - 16f,
-                            cy = sy - 14f,
-                            scale = (if (isCurrent) 1.25f else 0.95f) * zoomScale.coerceIn(0.8f, 1.5f),
-                            isThunderstorm = isStorm,
+                            cx = proj.x(st.lon),
+                            cy = proj.y(st.lat) - 11.dp.toPx(),
+                            scale = 0.8f * zoomScale.coerceIn(1f, 1.5f),
+                            isThunderstorm = st.dbzReflectivity >= 45 || st.iconType == "storm",
                             rainMm = st.rainVolumeMm
                         )
+                    }
+                }
+                val showRainValue = effectiveMapFormat == 0 && windyLayer == 1
+                val cityLabels = stations.map { st ->
+                    val isBarretos = st.id == "barretos" || st.name.contains("Barretos", ignoreCase = true)
+                    val real = st.hasRealData()
+                    MapLabel(
+                        key = st.id,
+                        x = proj.x(st.lon),
+                        y = proj.y(st.lat),
+                        name = if (isBarretos) "★ ${st.name}" else st.name,
+                        value = when {
+                            !real -> "sem dado"
+                            showRainValue -> "${fmt1(st.rainVolumeMm)} mm"
+                            else -> "${kotlin.math.round(st.currentTemp).toInt()}°C"
+                        },
+                        valueColor = when {
+                            !real -> Color(0xFF64748B)
+                            showRainValue -> if (st.rainVolumeMm < 0.2) Color(0xFF94A3B8) else MapRamp.RainMm.color(st.rainVolumeMm.toFloat())
+                            else -> MapRamp.TempC.color(st.currentTemp.toFloat())
+                        },
+                        priority = (if (isBarretos) 1000 else 0) + st.dbzReflectivity + (if (real) 100 else 0),
+                        selected = st.id == selectedStation?.id
+                    )
+                }
+                cityLabels.forEachIndexed { idx, lb ->
+                    val st = stations[idx]
+                    val pinColor = if (st.hasRealData() && st.dbzReflectivity >= 10) precipColor(st.dbzReflectivity.toFloat(), 1f)
+                        else if (effectiveBgTheme == 2) Color(0xFF0284C7) else Color(0xFF22D3EE)
+                    drawCityPin(lb.x, lb.y, pinColor, lb.selected, mapTheme)
+                }
+                val zoomButtons = 2 + (if (zoomScale != 1f || panOffsetX != 0f || panOffsetY != 0f) 1 else 0) + (if (userCoordinates != null) 1 else 0)
+                val zoomPanelH = (16 + 40 * zoomButtons).dp.toPx()
+                // Circular: máscara redonda; info centralizada embaixo e zoom no meio da borda direita (dentro do círculo)
+                val clipCircle = if (effectiveMapFormat == 1) ClipCircle(Offset(w / 2f, h / 2f), min(w, h) / 2f) else null
+                val uiAvoid = if (clipCircle != null) listOf(
+                    Rect(w / 2f - 95.dp.toPx(), h - 44.dp.toPx(), w / 2f + 95.dp.toPx(), h), // linha de info (inferior-centro)
+                    Rect(w - 74.dp.toPx(), h / 2f - zoomPanelH / 2f, w, h / 2f + zoomPanelH / 2f) // botões de zoom (direita-centro)
+                ) else listOf(
+                    Rect(if (effectiveMapFormat == 0) w - 200.dp.toPx() else w, 0f, w, 46.dp.toPx()), // pílulas Windy (topo-dir.)
+                    Rect(0f, h - 30.dp.toPx(), w * 0.75f, h), // linha de info (inferior-esq.)
+                    Rect(w - 58.dp.toPx(), h - zoomPanelH - 2.dp.toPx(), w, h) // botões de zoom
+                )
+                val placedLabels = drawMapLabels(
+                    textMeasurer, cityLabels, mapTheme,
+                    avoid = uiAvoid,
+                    clipCircle = clipCircle,
+                    // no círculo há menos área útil: só os 4 mais importantes podem cobrir pinos de outras cidades
+                    importantCount = if (clipCircle != null) 4 else 6
+                )
+
+                // Declutter dos textos decorativos: rótulos de anel (km) e de azimute só onde não colidem
+                // com rótulos/pinos de cidades nem com os botões. Antes eram desenhados por baixo e se sobrepunham.
+                val occupied = ArrayList<Rect>(uiAvoid)
+                placedLabels.forEach { pl -> occupied += pl.nameRect; pl.valueRect?.let { occupied += it } }
+                val pinR = 5.dp.toPx()
+                cityLabels.forEach { lb -> occupied += Rect(lb.x - pinR, lb.y - pinR, lb.x + pinR, lb.y + pinR) }
+                val decoBg = if (effectiveBgTheme == 2) Color(0xCCF1F5F9) else Color(0x99030A14)
+                ringKm.forEach { km ->
+                    val r = km * kmPx
+                    // tenta 8 posições sobre o anel (topo, base, laterais e diagonais); usa a primeira livre
+                    val spots = listOf(0.0, 180.0, 270.0, 90.0, 315.0, 45.0, 225.0, 135.0).map { deg ->
+                        val rad = Math.toRadians(deg - 90.0)
+                        Offset((centerX + cos(rad) * r).toFloat(), (centerY + sin(rad) * r).toFloat())
+                    }
+                    for (spot in spots) {
+                        if (drawTextIfFree(
+                                textMeasurer, "${km.toInt()} km", spot,
+                                TextStyle(color = ringTextColor, fontSize = 10.sp, fontWeight = FontWeight.SemiBold),
+                                occupied, clipCircle, decoBg
+                            ) != null) break
+                    }
+                }
+                if (effectiveMapFormat == 1) {
+                    val ppiR = 240f * kmPx
+                    PPI_AZIMUTH_LABELS.forEach { (deg, label) ->
+                        val rad = Math.toRadians(deg - 90.0)
+                        // dentro do anel; se ocupado, logo fora dele
+                        for (dist in listOf(ppiR - 20.dp.toPx(), ppiR + 12.dp.toPx())) {
+                            if (drawTextIfFree(
+                                    textMeasurer, label,
+                                    Offset((centerX + cos(rad) * dist).toFloat(), (centerY + sin(rad) * dist).toFloat()),
+                                    TextStyle(color = if (effectiveBgTheme == 2) Color(0xFF0369A1) else Color(0xFF00E5FF), fontSize = 10.sp, fontWeight = FontWeight.Bold),
+                                    occupied, clipCircle, decoBg
+                                ) != null) break
+                        }
                     }
                 }
 
                 // 7. Draw User GPS Location Pin Marker
                 userCoordinates?.let { (uLat, uLon) ->
-                    val ux = mapLonToX(uLon, w, zoomScale, panOffsetX)
-                    val uy = mapLatToY(uLat, h, zoomScale, panOffsetY)
+                    val ux = mapLonToX(uLon, w, h, zoomScale, panOffsetX)
+                    val uy = mapLatToY(uLat, w, h, zoomScale, panOffsetY)
 
                     // Outer pulse ring
                     drawCircle(
@@ -935,7 +924,7 @@ fun IpmetRadarCanvas(
                         topLeft = Offset(ux - 35f, uy + 14f),
                         style = TextStyle(
                             color = Color(0xFF38BDF8),
-                            fontSize = 9.sp,
+                            fontSize = 10.sp,
                             fontWeight = FontWeight.Bold
                         )
                     )
@@ -984,7 +973,7 @@ fun IpmetRadarCanvas(
                     Surface(
                         shape = RoundedCornerShape(14.dp),
                         color = if (windyLayer == 0) Color(0xFF0284C7) else Color.Transparent,
-                        modifier = Modifier.clickable { windyLayer = 0 }
+                        modifier = Modifier.clickable { windyLayer = 0 }.minimumInteractiveComponentSize()
                     ) {
                         Text(
                             "💨 Vento",
@@ -997,7 +986,7 @@ fun IpmetRadarCanvas(
                     Surface(
                         shape = RoundedCornerShape(14.dp),
                         color = if (windyLayer == 1) Color(0xFF10B981) else Color.Transparent,
-                        modifier = Modifier.clickable { windyLayer = 1 }
+                        modifier = Modifier.clickable { windyLayer = 1 }.minimumInteractiveComponentSize()
                     ) {
                         Text(
                             "🌧️ Chuva",
@@ -1010,7 +999,7 @@ fun IpmetRadarCanvas(
                     Surface(
                         shape = RoundedCornerShape(14.dp),
                         color = if (windyLayer == 2) Color(0xFFFF9100) else Color.Transparent,
-                        modifier = Modifier.clickable { windyLayer = 2 }
+                        modifier = Modifier.clickable { windyLayer = 2 }.minimumInteractiveComponentSize()
                     ) {
                         Text(
                             "🌡️ Temp",
@@ -1029,8 +1018,8 @@ fun IpmetRadarCanvas(
                 val coords = sondeCoordinates
                 Card(
                     modifier = Modifier
-                        .align(Alignment.BottomStart)
-                        .padding(10.dp)
+                        .align(if (isCircularScope) Alignment.BottomCenter else Alignment.BottomStart)
+                        .padding(if (isCircularScope) PaddingValues(bottom = 26.dp) else PaddingValues(10.dp))
                         .testTag("windy_sonde_card"),
                     colors = CardDefaults.cardColors(containerColor = Color(0xEE091426)),
                     shape = RoundedCornerShape(10.dp),
@@ -1056,7 +1045,7 @@ fun IpmetRadarCanvas(
                                 )
                             }
                             Text(
-                                text = "💨 Vento: ${st?.windSpeed?.toInt() ?: 18} km/h ${st?.windDirection ?: "ESE"} • 🌡️ ${st?.currentTemp ?: 25.0}°C • 🌧️ ${st?.rainVolumeMm ?: 0.0} mm",
+                                text = if (st == null || st.lastUpdated == 0L) "Dados indisponíveis" else "💨 Vento: ${st.windDirection} • 🌡️ ${st.currentTemp}°C • 🌧️ ${st.rainVolumeMm} mm",
                                 color = Color.White,
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.SemiBold
@@ -1078,22 +1067,24 @@ fun IpmetRadarCanvas(
                 }
             }
 
-            // Radar Corner Info Tag
-            Column(
+            // Info do mapa: 1 linha no canto inferior esquerdo (antes 2 linhas no topo, sob as pílulas Windy)
+            if (sondeOffset == null) Column(
                 modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .padding(10.dp)
+                    .align(if (isCircularScope) Alignment.BottomCenter else Alignment.BottomStart)
+                    .padding(start = if (isCircularScope) 0.dp else 10.dp, bottom = if (isCircularScope) 18.dp else 8.dp)
+                    .background(Color(0xCC091426), RoundedCornerShape(6.dp))
+                    .padding(horizontal = 6.dp, vertical = 2.dp)
             ) {
                 Text(
-                    text = "Banda S / C - Refletividade CAPPI 2.5km",
-                    color = Color(0xFF94A3B8),
-                    fontSize = 10.sp
-                )
-                Text(
-                    text = if (userCoordinates != null) "🎯 Foco: Localização Exata (GPS) | Zoom: ${"%.1f".format(zoomScale)}x"
-                           else "Alcance: 450 km | Resolução: 1 km | Zoom: ${"%.1f".format(zoomScale)}x",
-                    color = if (userCoordinates != null) Color(0xFF00E5FF) else Color(0xFF64748B),
-                    fontSize = 9.sp,
+                    text = when {
+                        isCircularScope && userCoordinates != null -> "🎯 GPS • ${"%.1f".format(Locale.US, zoomScale)}x"
+                        isCircularScope -> "Open-Meteo • anéis 60/120/240 km"
+                        userCoordinates != null -> "🎯 Foco: Localização Exata (GPS) | Zoom: ${"%.1f".format(Locale.US, zoomScale)}x"
+                        else -> "Previsão Open-Meteo • anéis 60/120/240 km • ${"%.1f".format(Locale.US, zoomScale)}x"
+                    },
+                    color = if (userCoordinates != null) Color(0xFF00E5FF) else Color(0xFF94A3B8),
+                    fontSize = 10.sp,
+                    maxLines = 1,
                     fontWeight = if (userCoordinates != null) FontWeight.SemiBold else FontWeight.Normal
                 )
             }
@@ -1101,8 +1092,9 @@ fun IpmetRadarCanvas(
             // Floating Zoom & Pan Controls (Bottom-End of Radar Box)
             Column(
                 modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(8.dp),
+                    // no círculo o canto inferior direito fica fora da máscara (botões ficavam cortados/inacessíveis)
+                    .align(if (isCircularScope) Alignment.CenterEnd else Alignment.BottomEnd)
+                    .padding(if (isCircularScope) PaddingValues(end = 14.dp) else PaddingValues(8.dp)),
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 Surface(
@@ -1116,7 +1108,7 @@ fun IpmetRadarCanvas(
                                 applyZoomToExactLocation(zoomScale * 1.35f)
                             },
                             modifier = Modifier
-                                .size(32.dp)
+                                .size(40.dp)
                                 .testTag("button_map_zoom_in")
                         ) {
                             Icon(
@@ -1132,7 +1124,7 @@ fun IpmetRadarCanvas(
                                 applyZoomToExactLocation(zoomScale / 1.35f)
                             },
                             modifier = Modifier
-                                .size(32.dp)
+                                .size(40.dp)
                                 .testTag("button_map_zoom_out")
                         ) {
                             Icon(
@@ -1337,7 +1329,7 @@ fun IpmetRadarCanvas(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
                         IconButton(
                             onClick = onTogglePlay,
                             modifier = Modifier.testTag("button_radar_play_pause")
@@ -1351,15 +1343,16 @@ fun IpmetRadarCanvas(
 
                         val offsetMinutes = (timeStep - 4) * 15
                         val stepTimeMillis = liveTimeMillis + (offsetMinutes * 60 * 1000L)
-                        val sdfLive = remember { java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale("pt", "BR")) }
+                        val sdfLive = remember { java.text.SimpleDateFormat("HH:mm", java.util.Locale("pt", "BR")) }
                         val sdfStep = remember { java.text.SimpleDateFormat("HH:mm", java.util.Locale("pt", "BR")) }
                         val sdfDate = remember { java.text.SimpleDateFormat("dd/MM/yyyy", java.util.Locale("pt", "BR")) }
 
-                        val timeTitle = when {
-                            timeStep == 4 -> "AO VIVO: ${sdfLive.format(java.util.Date(liveTimeMillis))} BRT"
-                            timeStep < 4 -> "${sdfStep.format(java.util.Date(stepTimeMillis))} (${offsetMinutes} min)"
-                            else -> "${sdfStep.format(java.util.Date(stepTimeMillis))} (+${offsetMinutes} min • Previsto)"
-                        }
+                        // Horário real do último dado recebido (nunca "AO VIVO")
+                        val lastReal = stations.maxOfOrNull { it.lastUpdated } ?: 0L
+                        val ageMin = ((liveTimeMillis - lastReal) / 60000L).coerceAtLeast(0)
+                        val timeTitle = if (lastReal > 0L) {
+                            "Último dado: ${sdfStep.format(java.util.Date(lastReal))} (há $ageMin min)"
+                        } else "Dados indisponíveis"
 
                         Column {
                             Text(
@@ -1369,126 +1362,57 @@ fun IpmetRadarCanvas(
                                 fontWeight = FontWeight.Bold
                             )
                             Text(
-                                text = "${sdfDate.format(java.util.Date(stepTimeMillis))} • Modelo IPMet Doppler",
+                                text = mdInline("• ${if (lastReal > 0L) sdfDate.format(java.util.Date(lastReal)) else "—"} • **Fonte: Open-Meteo** (previsão numérica)"),
                                 color = Color(0xFF38BDF8),
-                                fontSize = 10.sp
+                                fontSize = 10.sp,
+                                maxLines = 1,
+                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                             )
                         }
                     }
 
-                    if (timeStep == 4) {
-                        Surface(
-                            shape = RoundedCornerShape(6.dp),
-                            color = Color(0xFF00E676).copy(alpha = 0.2f),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF00E676))
-                        ) {
-                            Text(
-                                "● AO VIVO",
-                                color = Color(0xFF00E676),
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                            )
-                        }
-                    } else if (timeStep > 4) {
-                        Surface(
-                            shape = RoundedCornerShape(6.dp),
-                            color = Color(0xFF38BDF8).copy(alpha = 0.2f)
-                        ) {
-                            Text(
-                                "NOWCASTING",
-                                color = Color(0xFF38BDF8),
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                            )
-                        }
-                    } else {
-                        Surface(
-                            shape = RoundedCornerShape(6.dp),
-                            color = Color(0xFF64748B).copy(alpha = 0.2f)
-                        ) {
-                            Text(
-                                "DOPPLER",
-                                color = Color(0xFF94A3B8),
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                            )
-                        }
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = Color(0xFF64748B).copy(alpha = 0.2f)
+                    ) {
+                        Text(
+                            "PREVISÃO",
+                            color = Color(0xFF94A3B8),
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
                     }
                 }
 
-                Slider(
-                    value = timeStep.toFloat(),
-                    onValueChange = { onTimeStepChanged(it.toInt()) },
-                    valueRange = 0f..6f,
-                    steps = 5,
-                    colors = SliderDefaults.colors(
-                        thumbColor = MaterialTheme.colorScheme.primary,
-                        activeTrackColor = MaterialTheme.colorScheme.primary
-                    ),
-                    modifier = Modifier.testTag("slider_radar_time")
-                )
+                // Linha do tempo fictícia (-60 min … +30 min "nowcasting") removida: não há frames reais de radar.
 
-                // Quick Time Step Selector Chips
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 2.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    FilterChip(
-                        selected = timeStep == 0,
-                        onClick = { onTimeStepChanged(0) },
-                        label = { Text("-60m", fontSize = 10.sp) },
-                        modifier = Modifier.testTag("chip_step_minus_60")
-                    )
-                    FilterChip(
-                        selected = timeStep == 2,
-                        onClick = { onTimeStepChanged(2) },
-                        label = { Text("-30m", fontSize = 10.sp) },
-                        modifier = Modifier.testTag("chip_step_minus_30")
-                    )
-                    FilterChip(
-                        selected = timeStep == 4,
-                        onClick = { onTimeStepChanged(4) },
-                        label = { Text("● AGORA", fontSize = 10.sp, fontWeight = FontWeight.Bold) },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = Color(0xFF00E676),
-                            selectedLabelColor = Color.Black
-                        ),
-                        modifier = Modifier.testTag("chip_step_live_now")
-                    )
-                    FilterChip(
-                        selected = timeStep == 5,
-                        onClick = { onTimeStepChanged(5) },
-                        label = { Text("+15m", fontSize = 10.sp) },
-                        modifier = Modifier.testTag("chip_step_plus_15")
-                    )
-                    FilterChip(
-                        selected = timeStep == 6,
-                        onClick = { onTimeStepChanged(6) },
-                        label = { Text("+30m", fontSize = 10.sp) },
-                        modifier = Modifier.testTag("chip_step_plus_30")
-                    )
-                }
-
-                // dBZ Color Legend Bar
+                // dBZ Color Legend Bar (barra contínua em degradê)
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(top = 4.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("dBZ:", color = Color(0xFF94A3B8), fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                    DbzLegendItem(color = Color(0xFF00E676), label = "15 Fraca")
-                    DbzLegendItem(color = Color(0xFFFFD600), label = "30 Mod")
-                    DbzLegendItem(color = Color(0xFFFF9100), label = "45 Forte")
-                    DbzLegendItem(color = Color(0xFFFF1744), label = "55 Granizo")
-                    DbzLegendItem(color = Color(0xFFD500F9), label = "65+ Extrema")
+                    Text("dBZ est.:", color = Color(0xFF94A3B8), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(6.dp)
+                                .clip(RoundedCornerShape(3.dp))
+                                .background(Brush.horizontalGradient(colorStops = PrecipLegendStops))
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            listOf("15 Fraca", "30 Mod", "45 Forte", "55 Granizo", "65+ Extrema").forEach { lbl ->
+                                Text(lbl, color = Color(0xFF94A3B8), fontSize = 10.sp, maxLines = 1, softWrap = false)
+                            }
+                        }
+                    }
                 }
 
                 Row(
@@ -1499,13 +1423,14 @@ fun IpmetRadarCanvas(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        "☁️ Nuvens no mapa indicam chuva ativa e tempestades",
+                        mdInline("• Campo = **chuva prevista** interpolada entre cidades (dBZ estimado, não é radar)"),
                         color = Color(0xFF38BDF8),
                         fontSize = 10.sp,
-                        fontWeight = FontWeight.Medium
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier.weight(1f, fill = false)
                     )
                     Text(
-                        "IPMet UNESP",
+                        mdInline("*Open-Meteo*"),
                         color = Color(0xFF94A3B8),
                         fontSize = 10.sp
                     )
@@ -1515,237 +1440,25 @@ fun IpmetRadarCanvas(
     }
 }
 
-@Composable
-private fun DbzLegendItem(color: Color, label: String) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Box(
-            modifier = Modifier
-                .size(8.dp)
-                .background(color, CircleShape)
-        )
-        Spacer(modifier = Modifier.width(3.dp))
-        Text(label, color = Color(0xFF94A3B8), fontSize = 9.sp)
-    }
-}
-
 private fun getDbzColor(dbz: Int): Color {
-    return when {
-        dbz >= 55 -> Color(0xFFD500F9)
-        dbz >= 45 -> Color(0xFFFF1744)
-        dbz >= 35 -> Color(0xFFFF9100)
-        dbz >= 25 -> Color(0xFFFFD600)
-        dbz >= 15 -> Color(0xFF00E676)
-        else -> Color(0xFF00E5FF)
-    }
+    return precipColor(dbz.toFloat(), 1f)
 }
 
-// SP Map coordinate mapping with zoom and pan
-private fun mapLonToX(lon: Double, width: Float, zoom: Float = 1f, panX: Float = 0f): Float {
-    val norm = ((lon - MIN_LON) / (MAX_LON - MIN_LON)).coerceIn(0.0, 1.0)
-    val baseX = (norm * (width - 60f) + 30f).toFloat()
-    val centerX = width / 2f
-    return centerX + (baseX - centerX) * zoom + panX
-}
+// Projeção comum (escala única lon/lat, sem esticar nem grampear coordenadas) — ver ui/map/SpProjection
+private const val RADAR_PAD = 24f
+private fun mapLonToX(lon: Double, width: Float, height: Float, zoom: Float = 1f, panX: Float = 0f): Float =
+    SpProjection(width, height, zoom, panX, 0f, RADAR_PAD).x(lon)
 
-private fun mapLatToY(lat: Double, height: Float, zoom: Float = 1f, panY: Float = 0f): Float {
-    // Inverted because Lat decreases as we go South
-    val norm = ((MAX_LAT - lat) / (MAX_LAT - MIN_LAT)).coerceIn(0.0, 1.0)
-    val baseY = (norm * (height - 60f) + 30f).toFloat()
-    val centerY = height / 2f
-    return centerY + (baseY - centerY) * zoom + panY
-}
-
-// Draw SP state outline representation and landmass according to background theme
-private fun DrawScope.drawSpBoundary(
-    w: Float,
-    h: Float,
-    zoom: Float = 1f,
-    panX: Float = 0f,
-    panY: Float = 0f,
-    bgTheme: Int = 0,
-    textMeasurer: TextMeasurer? = null
-) {
-    // 0. Neighboring States (Minas Gerais, Paraná)
-    val mgPath = Path().apply {
-        moveTo(mapLonToX(-51.5, w, zoom, panX), mapLatToY(-20.5, h, zoom, panY))
-        lineTo(mapLonToX(-50.0, w, zoom, panX), mapLatToY(-19.8, h, zoom, panY))
-        lineTo(mapLonToX(-47.5, w, zoom, panX), mapLatToY(-20.0, h, zoom, panY))
-        lineTo(mapLonToX(-46.5, w, zoom, panX), mapLatToY(-21.8, h, zoom, panY))
-        lineTo(mapLonToX(-44.6, w, zoom, panX), mapLatToY(-22.5, h, zoom, panY))
-        lineTo(mapLonToX(-44.0, w, zoom, panX), mapLatToY(-21.0, h, zoom, panY))
-        lineTo(mapLonToX(-48.0, w, zoom, panX), mapLatToY(-19.0, h, zoom, panY))
-        lineTo(mapLonToX(-51.5, w, zoom, panX), mapLatToY(-19.5, h, zoom, panY))
-        close()
-    }
-    val prPath = Path().apply {
-        moveTo(mapLonToX(-53.0, w, zoom, panX), mapLatToY(-22.4, h, zoom, panY))
-        lineTo(mapLonToX(-51.0, w, zoom, panX), mapLatToY(-23.2, h, zoom, panY))
-        lineTo(mapLonToX(-49.5, w, zoom, panX), mapLatToY(-24.7, h, zoom, panY))
-        lineTo(mapLonToX(-47.8, w, zoom, panX), mapLatToY(-25.0, h, zoom, panY))
-        lineTo(mapLonToX(-48.5, w, zoom, panX), mapLatToY(-26.0, h, zoom, panY))
-        lineTo(mapLonToX(-53.0, w, zoom, panX), mapLatToY(-25.5, h, zoom, panY))
-        close()
-    }
-
-    val neighborFill = when (bgTheme) {
-        1 -> Color(0xFF1E3524) // Muted Terrestre
-        2 -> Color(0xFFF1F5F9) // Muted White/Slate
-        else -> Color(0xFF061324) // Dark oceanic slate
-    }
-    drawPath(mgPath, neighborFill)
-    drawPath(prPath, neighborFill)
-
-    // 1. São Paulo State Detailed Contour
-    val path = Path().apply {
-        moveTo(mapLonToX(-53.0, w, zoom, panX), mapLatToY(-22.4, h, zoom, panY)) // Pontal do Paranapanema
-        lineTo(mapLonToX(-52.2, w, zoom, panX), mapLatToY(-21.7, h, zoom, panY)) // Presidente Epitácio / Rio Paraná
-        lineTo(mapLonToX(-51.5, w, zoom, panX), mapLatToY(-20.5, h, zoom, panY)) // Rio Paraná / Ilha Solteira
-        lineTo(mapLonToX(-50.9, w, zoom, panX), mapLatToY(-20.2, h, zoom, panY)) // Santa Fé do Sul
-        lineTo(mapLonToX(-50.0, w, zoom, panX), mapLatToY(-19.8, h, zoom, panY)) // Noroeste divisa MG
-        lineTo(mapLonToX(-48.5, w, zoom, panX), mapLatToY(-20.0, h, zoom, panY)) // Barretos / Rio Grande
-        lineTo(mapLonToX(-47.5, w, zoom, panX), mapLatToY(-20.0, h, zoom, panY)) // Franca / Rio Grande
-        lineTo(mapLonToX(-46.5, w, zoom, panX), mapLatToY(-21.8, h, zoom, panY)) // Circuito das Águas
-        lineTo(mapLonToX(-44.6, w, zoom, panX), mapLatToY(-22.5, h, zoom, panY)) // Vale do Paraíba / Cruzeiro
-        lineTo(mapLonToX(-44.8, w, zoom, panX), mapLatToY(-23.4, h, zoom, panY)) // Ubatuba / Litoral Norte
-        lineTo(mapLonToX(-45.4, w, zoom, panX), mapLatToY(-23.8, h, zoom, panY)) // Ilhabela / São Sebastião
-        lineTo(mapLonToX(-46.4, w, zoom, panX), mapLatToY(-24.0, h, zoom, panY)) // Santos / Baixada Santista
-        lineTo(mapLonToX(-47.5, w, zoom, panX), mapLatToY(-24.7, h, zoom, panY)) // Iguape / Cananéia
-        lineTo(mapLonToX(-47.8, w, zoom, panX), mapLatToY(-25.0, h, zoom, panY)) // Cananéia / Ilha Comprida
-        lineTo(mapLonToX(-48.9, w, zoom, panX), mapLatToY(-24.8, h, zoom, panY)) // Vale do Ribeira / Divisa PR
-        lineTo(mapLonToX(-49.5, w, zoom, panX), mapLatToY(-24.7, h, zoom, panY)) // Divisa Paraná Sul
-        lineTo(mapLonToX(-50.1, w, zoom, panX), mapLatToY(-23.1, h, zoom, panY)) // Ourinhos / Paranapanema
-        lineTo(mapLonToX(-51.0, w, zoom, panX), mapLatToY(-23.2, h, zoom, panY)) // Paranapanema / Ourinhos
-        lineTo(mapLonToX(-52.2, w, zoom, panX), mapLatToY(-22.6, h, zoom, panY)) // Paranapanema Oeste
-        close()
-    }
-
-    when (bgTheme) {
-        0 -> { // Black & Blue
-            drawPath(
-                path = path,
-                brush = Brush.radialGradient(
-                    colors = listOf(Color(0xFF0F2648), Color(0xFF08172D)),
-                    center = Offset(w * 0.5f, h * 0.5f),
-                    radius = (w * 0.7f * zoom).coerceAtLeast(200f)
-                )
-            )
-            drawPath(
-                path = path,
-                color = Color(0xFF00E5FF).copy(alpha = 0.85f),
-                style = Stroke(width = 1.8f * zoom.coerceIn(0.8f, 2.2f))
-            )
-        }
-        1 -> { // Terrestre (Relevo / Vegetação natural da Mata Atlântica e Cerrado)
-            drawPath(
-                path = path,
-                brush = Brush.linearGradient(
-                    colors = listOf(
-                        Color(0xFF4D6328), // Noroeste / cerrado e agro
-                        Color(0xFF5A6630), // Centro / Planalto Paulista
-                        Color(0xFF386641), // Leste / Vale do Paraíba
-                        Color(0xFF265330)  // Litoral / Serra do Mar verde exuberante
-                    ),
-                    start = Offset(0f, 0f),
-                    end = Offset(w, h)
-                )
-            )
-            // Shaded relief along Serra do Mar and Serra da Mantiqueira
-            val reliefPath = Path().apply {
-                moveTo(mapLonToX(-44.6, w, zoom, panX), mapLatToY(-22.5, h, zoom, panY))
-                lineTo(mapLonToX(-44.8, w, zoom, panX), mapLatToY(-23.4, h, zoom, panY))
-                lineTo(mapLonToX(-45.4, w, zoom, panX), mapLatToY(-23.8, h, zoom, panY))
-                lineTo(mapLonToX(-46.4, w, zoom, panX), mapLatToY(-24.0, h, zoom, panY))
-                lineTo(mapLonToX(-47.5, w, zoom, panX), mapLatToY(-24.7, h, zoom, panY))
-                lineTo(mapLonToX(-47.8, w, zoom, panX), mapLatToY(-25.0, h, zoom, panY))
-            }
-            drawPath(
-                path = reliefPath,
-                color = Color(0xFF78623A).copy(alpha = 0.55f),
-                style = Stroke(width = 9.0f * zoom.coerceIn(0.8f, 2.0f), cap = StrokeCap.Round)
-            )
-            // State border line (crisp ivory with subtle dark drop)
-            drawPath(
-                path = path,
-                color = Color(0xFF0C2417).copy(alpha = 0.7f),
-                style = Stroke(width = 3.0f * zoom.coerceIn(0.8f, 2.2f))
-            )
-            drawPath(
-                path = path,
-                color = Color(0xFFFEF9C3).copy(alpha = 0.95f),
-                style = Stroke(width = 1.8f * zoom.coerceIn(0.8f, 2.2f))
-            )
-        }
-        2 -> { // White (Papel cartográfico puro com linhas nítidas de alto contraste)
-            drawPath(
-                path = path,
-                color = Color.White
-            )
-            drawPath(
-                path = path,
-                color = Color(0xFF0F172A).copy(alpha = 0.95f),
-                style = Stroke(width = 2.2f * zoom.coerceIn(0.8f, 2.2f))
-            )
-        }
-    }
-
-    // 2. Main Rivers across SP (Tietê, Paranapanema)
-    val riverColor = when (bgTheme) {
-        1 -> Color(0xFF38BDF8)
-        2 -> Color(0xFF0284C7)
-        else -> Color(0xFF00E5FF)
-    }
-
-    // Rio Tietê
-    val tietePath = Path().apply {
-        val tpts = listOf(
-            Pair(-23.53, -46.0), Pair(-23.45, -46.8), Pair(-23.1, -47.4),
-            Pair(-22.7, -48.4), Pair(-22.2, -49.2), Pair(-21.6, -49.9), Pair(-20.7, -51.3)
-        )
-        tpts.forEachIndexed { i, (lat, lon) ->
-            val x = mapLonToX(lon, w, zoom, panX)
-            val y = mapLatToY(lat, h, zoom, panY)
-            if (i == 0) moveTo(x, y) else lineTo(x, y)
-        }
-    }
-    drawPath(tietePath, color = riverColor.copy(alpha = 0.75f), style = Stroke(width = 2.0f * zoom.coerceIn(0.8f, 2.0f)))
-
-    // Rio Paranapanema
-    val paranaPath = Path().apply {
-        val ppts = listOf(
-            Pair(-23.5, -48.5), Pair(-23.2, -49.5), Pair(-23.0, -50.2),
-            Pair(-22.6, -51.5), Pair(-22.4, -53.0)
-        )
-        ppts.forEachIndexed { i, (lat, lon) ->
-            val x = mapLonToX(lon, w, zoom, panX)
-            val y = mapLatToY(lat, h, zoom, panY)
-            if (i == 0) moveTo(x, y) else lineTo(x, y)
-        }
-    }
-    drawPath(paranaPath, color = riverColor.copy(alpha = 0.65f), style = Stroke(width = 1.6f * zoom.coerceIn(0.8f, 2.0f)))
-
-    // Ocean Label "OCEANO ATLÂNTICO"
-    if (textMeasurer != null) {
-        val oceanX = mapLonToX(-45.5, w, zoom, panX)
-        val oceanY = mapLatToY(-24.7, h, zoom, panY)
-        val oceanColor = when (bgTheme) {
-            1 -> Color(0xFF7DD3FC).copy(alpha = 0.65f)
-            2 -> Color(0xFF0284C7).copy(alpha = 0.75f)
-            else -> Color(0xFF38BDF8).copy(alpha = 0.5f)
-        }
-        safeDrawText(
-            textMeasurer = textMeasurer,
-            text = "OCEANO ATLÂNTICO",
-            topLeft = Offset(oceanX, oceanY),
-            style = TextStyle(color = oceanColor, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
-        )
-    }
-}
+private fun mapLatToY(lat: Double, width: Float, height: Float, zoom: Float = 1f, panY: Float = 0f): Float =
+    SpProjection(width, height, zoom, 0f, panY, RADAR_PAD).y(lat)
 
 // Draw rain clusters and storm cell trajectories
 private fun DrawScope.drawRadarReflectivityClusters(
     w: Float,
     h: Float,
+    stations: List<WeatherStationEntity>,
     timeStep: Int,
+    animatedStep: Float = timeStep.toFloat(),
     isEnergySaver: Boolean,
     stormCells: List<StormCellTrajectory>,
     showTrajectories: Boolean,
@@ -1755,32 +1468,52 @@ private fun DrawScope.drawRadarReflectivityClusters(
     panX: Float = 0f,
     panY: Float = 0f
 ) {
-    val offsetShift = (timeStep - 4) * 8f * zoom
+    @Suppress("UNUSED_VARIABLE") val unusedStep = animatedStep
 
-    // Cluster 1: Bauru - Botucatu corridor
-    val c1X = mapLonToX(-48.8, w, zoom, panX) + offsetShift
-    val c1Y = mapLatToY(-22.6, h, zoom, panY) + offsetShift * 0.3f
-    drawEchoBlob(c1X, c1Y, 36f * zoom.coerceIn(0.8f, 2.2f), Color(0xFFFF9100), Color(0xFFFF1744))
-    drawRainCloud(c1X, c1Y - 18f * zoom, scale = 1.3f * zoom.coerceIn(0.8f, 1.6f), isThunderstorm = true, rainMm = 14.0)
+    // As 4 "manchas" fixas (inventadas) foram substituídas por manchas calculadas da chuva prevista
+    // pela Open-Meteo em cada estação (dBZ ESTIMADO pela taxa de chuva da hora atual; não é radar).
+    // Chuva por estação agora é um campo contínuo IDW (ver IpmetRadarCanvas → rainImage).
 
-    // Cluster 2: Vale do Paraíba (Campos do Jordão / SJC)
-    val c2X = mapLonToX(-45.7, w, zoom, panX) + offsetShift
-    val c2Y = mapLatToY(-23.0, h, zoom, panY)
-    drawEchoBlob(c2X, c2Y, 28f * zoom.coerceIn(0.8f, 2.2f), Color(0xFFFF1744), Color(0xFFD500F9))
-    drawRainCloud(c2X, c2Y - 16f * zoom, scale = 1.25f * zoom.coerceIn(0.8f, 1.6f), isThunderstorm = true, rainMm = 18.0)
+    // --- Passo 1: camada de chuva (manchas suaves) em camada offscreen com transparência uniforme ---
+    val useLayer = !isEnergySaver
+    if (useLayer) {
+        drawContext.canvas.saveLayer(Rect(Offset.Zero, size), Paint().apply { alpha = 0.72f })
+    }
+    stormCells.forEach { cell ->
+        val dtMin = (timeStep - 4) * 15f
+        val kmTraveled = cell.speedKmH * (dtMin / 60f)
+        val degRad = Math.toRadians(cell.directionAngleDeg)
+        val scale = (w / 500f) * zoom
+        val dx = (kmTraveled * cos(degRad) * 1.8f * scale).toFloat()
+        val dy = (kmTraveled * sin(degRad) * 1.8f * scale).toFloat()
 
-    // Cluster 3: Baixada Santista / Serra do Mar
-    val c3X = mapLonToX(-46.3, w, zoom, panX)
-    val c3Y = mapLatToY(-23.9, h, zoom, panY)
-    drawEchoBlob(c3X, c3Y, 32f * zoom.coerceIn(0.8f, 2.2f), Color(0xFFFFD600), Color(0xFFFF9100))
-    drawRainCloud(c3X, c3Y - 16f * zoom, scale = 1.2f * zoom.coerceIn(0.8f, 1.6f), isThunderstorm = false, rainMm = 12.0)
+        val curX = mapLonToX(cell.originLon, w, h, zoom, panX) + dx
+        val curY = mapLatToY(cell.originLat, w, h, zoom, panY) + dy
+        val isSelected = selectedStormCell?.id == cell.id
+        val echoCore = precipColor(cell.dbzPeak.toFloat(), 1f)
+        val echoOuter = precipColor((cell.dbzPeak - 12).toFloat(), 1f)
+        drawEchoBlob(curX, curY, (if (isSelected) 30f else 22f) * zoom.coerceIn(0.8f, 2.0f), echoOuter, echoCore)
+    }
+    if (useLayer) {
+        drawContext.canvas.restore()
+    }
 
-    // Cluster 4: Campinas / Sorocaba
-    val c4X = mapLonToX(-47.2, w, zoom, panX) + offsetShift * 0.8f
-    val c4Y = mapLatToY(-23.1, h, zoom, panY)
-    drawEchoBlob(c4X, c4Y, 24f * zoom.coerceIn(0.8f, 2.2f), Color(0xFF00E676), Color(0xFFFFD600))
-    drawRainCloud(c4X, c4Y - 14f * zoom, scale = 1.1f * zoom.coerceIn(0.8f, 1.6f), isThunderstorm = false, rainMm = 7.5)
+    // --- Passo 2: nuvens de chuva por cima das manchas ---
+    stormCells.forEach { cell ->
+        val dtMin = (timeStep - 4) * 15f
+        val kmTraveled = cell.speedKmH * (dtMin / 60f)
+        val degRad = Math.toRadians(cell.directionAngleDeg)
+        val scale = (w / 500f) * zoom
+        val dx = (kmTraveled * cos(degRad) * 1.8f * scale).toFloat()
+        val dy = (kmTraveled * sin(degRad) * 1.8f * scale).toFloat()
 
+        val curX = mapLonToX(cell.originLon, w, h, zoom, panX) + dx
+        val curY = mapLatToY(cell.originLat, w, h, zoom, panY) + dy
+        val isSelected = selectedStormCell?.id == cell.id
+        drawRainCloud(curX, curY - 18f * zoom, scale = (if (isSelected) 1.4f else 1.15f) * zoom.coerceIn(0.8f, 1.6f), isThunderstorm = true, rainMm = cell.rainRateMmH)
+    }
+
+    // --- Passo 3: seleção e trajetórias (cálculos inalterados), sempre por cima ---
     // Draw active storm cell echoes and trajectories
     stormCells.forEach { cell ->
         val dtMin = (timeStep - 4) * 15f
@@ -1790,15 +1523,12 @@ private fun DrawScope.drawRadarReflectivityClusters(
         val dx = (kmTraveled * cos(degRad) * 1.8f * scale).toFloat()
         val dy = (kmTraveled * sin(degRad) * 1.8f * scale).toFloat()
 
-        val curX = mapLonToX(cell.originLon, w, zoom, panX) + dx
-        val curY = mapLatToY(cell.originLat, h, zoom, panY) + dy
+        val curX = mapLonToX(cell.originLon, w, h, zoom, panX) + dx
+        val curY = mapLatToY(cell.originLat, w, h, zoom, panY) + dy
 
         val cellColor = if (cell.dbzPeak >= 55) Color(0xFFD500F9) else if (cell.dbzPeak >= 45) Color(0xFFFF1744) else Color(0xFFFF9100)
         val isSelected = selectedStormCell?.id == cell.id
 
-        // Storm core echo
-        drawEchoBlob(curX, curY, (if (isSelected) 30f else 22f) * zoom.coerceIn(0.8f, 2.0f), cellColor.copy(alpha = 0.6f), cellColor)
-        drawRainCloud(curX, curY - 18f * zoom, scale = (if (isSelected) 1.4f else 1.15f) * zoom.coerceIn(0.8f, 1.6f), isThunderstorm = true, rainMm = cell.rainRateMmH)
 
         if (isSelected) {
             drawCircle(
@@ -1885,7 +1615,7 @@ private fun DrawScope.drawRadarReflectivityClusters(
             val etaLabel = "➔ ${cell.speedKmH.toInt()} km/h | Rumo ${cell.impactTowns.firstOrNull() ?: "Leste"}"
             val etaLayout = textMeasurer.measure(
                 text = etaLabel,
-                style = TextStyle(fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                style = TextStyle(fontSize = 10.sp, fontWeight = FontWeight.Bold)
             )
             drawRoundRect(
                 color = Color(0xFF0F172A).copy(alpha = 0.9f),
@@ -1897,7 +1627,7 @@ private fun DrawScope.drawRadarReflectivityClusters(
                 textMeasurer = textMeasurer,
                 text = etaLabel,
                 topLeft = Offset(fX15 + 8f, fY15 - 14f),
-                style = TextStyle(color = Color(0xFF00E5FF), fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                style = TextStyle(color = Color(0xFF00E5FF), fontSize = 10.sp, fontWeight = FontWeight.Bold)
             )
 
             // ETA tags (+15m, +30m, +45m)
@@ -1905,40 +1635,51 @@ private fun DrawScope.drawRadarReflectivityClusters(
                 textMeasurer = textMeasurer,
                 text = "+15m",
                 topLeft = Offset(fX15 + 6f, fY15 + 4f),
-                style = TextStyle(color = Color(0xFF38BDF8), fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                style = TextStyle(color = Color(0xFF38BDF8), fontSize = 10.sp, fontWeight = FontWeight.Bold)
             )
             safeDrawText(
                 textMeasurer = textMeasurer,
                 text = "+30m: ${cell.eta30m.substringBefore(" (")}",
                 topLeft = Offset(fX30 + 6f, fY30 - 12f),
-                style = TextStyle(color = Color(0xFFFFAB00), fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                style = TextStyle(color = Color(0xFFFFAB00), fontSize = 10.sp, fontWeight = FontWeight.Bold)
             )
             safeDrawText(
                 textMeasurer = textMeasurer,
                 text = "+45m (Impacto)",
                 topLeft = Offset(fX45 + 8f, fY45 - 14f),
-                style = TextStyle(color = Color(0xFFFF5252), fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                style = TextStyle(color = Color(0xFFFF5252), fontSize = 10.sp, fontWeight = FontWeight.Bold)
             )
         }
     }
 }
 
 private fun DrawScope.drawEchoBlob(cx: Float, cy: Float, radius: Float, outerColor: Color, centerColor: Color) {
-    drawCircle(
-        color = outerColor.copy(alpha = 0.4f),
-        radius = radius,
-        center = Offset(cx, cy)
+    val r = radius * 1.35f   // borda difusa maior
+    // Sub-manchas em posições fixas (determinísticas) para um formato menos "redondo"
+    val subBlobs = arrayOf(
+        floatArrayOf(0f, 0f, 1f),
+        floatArrayOf(0.25f, -0.15f, 0.75f),
+        floatArrayOf(-0.22f, 0.18f, 0.7f)
     )
-    drawCircle(
-        color = outerColor.copy(alpha = 0.7f),
-        radius = radius * 0.65f,
-        center = Offset(cx, cy)
-    )
-    drawCircle(
-        color = centerColor.copy(alpha = 0.9f),
-        radius = radius * 0.35f,
-        center = Offset(cx, cy)
-    )
+    val mid = lerp(centerColor, outerColor, 0.5f)
+    val fringe = Color(0xFF3DBA3D)
+    for (sb in subBlobs) {
+        val c = Offset(cx + sb[0] * r, cy + sb[1] * r)
+        val rr = r * sb[2]
+        drawCircle(
+            brush = Brush.radialGradient(
+                0.00f to centerColor.copy(alpha = 1.0f),
+                0.30f to mid.copy(alpha = 0.92f),
+                0.60f to outerColor.copy(alpha = 0.75f),
+                0.85f to fringe.copy(alpha = 0.40f),
+                1.00f to Color.Transparent,
+                center = c,
+                radius = rr
+            ),
+            radius = rr,
+            center = c
+        )
+    }
 }
 
 /**
@@ -2043,10 +1784,12 @@ private fun DrawScope.drawCircularPpiScope(
     centerX: Float,
     centerY: Float,
     sweepAngle: Float,
-    isPlaying: Boolean
+    isPlaying: Boolean,
+    radiusPx: Float = min(w, h) * 0.47f
 ) {
-    val radius = min(w, h) * 0.47f
-    val center = Offset(w / 2f, h / 2f)
+    // Centrado no RADAR (antes ficava no centro do canvas, desalinhado dos anéis e das cidades)
+    val radius = radiusPx
+    val center = Offset(centerX, centerY)
 
     // Outer instrument ring (phosphor cyan)
     drawCircle(
@@ -2056,17 +1799,7 @@ private fun DrawScope.drawCircularPpiScope(
         style = Stroke(width = 2.5f)
     )
 
-    // Azimuth ticks & labels every 45 degrees
-    val azimuthLabels = listOf(
-        Pair(0.0, "0° N"),
-        Pair(45.0, "45° NE"),
-        Pair(90.0, "90° E"),
-        Pair(135.0, "135° SE"),
-        Pair(180.0, "180° S"),
-        Pair(225.0, "225° SW"),
-        Pair(270.0, "270° W"),
-        Pair(315.0, "315° NW")
-    )
+    // Rótulos de azimute: desenhados depois das cidades com declutter (PPI_AZIMUTH_LABELS / drawTextIfFree)
 
     // Draw degree tick marks every 15 degrees
     for (deg in 0 until 360 step 15) {
@@ -2086,19 +1819,13 @@ private fun DrawScope.drawCircularPpiScope(
         )
     }
 
-    azimuthLabels.forEach { (deg, label) ->
-        val rad = Math.toRadians(deg - 90.0)
-        val textDist = radius - 18f
-        val lx = (center.x + cos(rad) * textDist).toFloat()
-        val ly = (center.y + sin(rad) * textDist).toFloat()
-        safeDrawText(
-            textMeasurer = textMeasurer,
-            text = label,
-            topLeft = Offset(lx - 14f, ly - 6f),
-            style = TextStyle(color = Color(0xFF00E5FF), fontSize = 8.sp, fontWeight = FontWeight.Bold)
-        )
-    }
 }
+
+/** Azimutes do PPI em pt-BR (L = leste, O = oeste), curtos para não poluir o mapa. */
+private val PPI_AZIMUTH_LABELS = listOf(
+    0.0 to "N", 45.0 to "NE", 90.0 to "L", 135.0 to "SE",
+    180.0 to "S", 225.0 to "SO", 270.0 to "O", 315.0 to "NO"
+)
 
 // -------------------------------------------------------------
 // Formato Cartográfico - Malha Viária, Rios e Coordenadas
@@ -2141,7 +1868,7 @@ private fun DrawScope.drawCartographicBasemap(
     // Paralelos (-20°S, -22°S, -24°S)
     val parallels = listOf(-20.0, -22.0, -24.0)
     parallels.forEach { lat ->
-        val py = mapLatToY(lat, h, zoom, panY)
+        val py = mapLatToY(lat, w, h, zoom, panY)
         drawLine(
             color = gridColor,
             start = Offset(0f, py),
@@ -2153,14 +1880,14 @@ private fun DrawScope.drawCartographicBasemap(
             textMeasurer = textMeasurer,
             text = "${lat.toInt()}°S",
             topLeft = Offset(6f, py - 12f),
-            style = TextStyle(color = gridTextColor, fontSize = 8.sp, fontWeight = FontWeight.SemiBold)
+            style = TextStyle(color = gridTextColor, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
         )
     }
 
     // Meridianos (-52°W, -50°W, -48°W, -46°W)
     val meridians = listOf(-52.0, -50.0, -48.0, -46.0)
     meridians.forEach { lon ->
-        val px = mapLonToX(lon, w, zoom, panX)
+        val px = mapLonToX(lon, w, h, zoom, panX)
         drawLine(
             color = gridColor,
             start = Offset(px, 0f),
@@ -2172,7 +1899,7 @@ private fun DrawScope.drawCartographicBasemap(
             textMeasurer = textMeasurer,
             text = "${lon.toInt()}°W",
             topLeft = Offset(px + 4f, 6f),
-            style = TextStyle(color = gridTextColor, fontSize = 8.sp, fontWeight = FontWeight.SemiBold)
+            style = TextStyle(color = gridTextColor, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
         )
     }
 
@@ -2183,8 +1910,8 @@ private fun DrawScope.drawCartographicBasemap(
     )
     val tietePath = Path().apply {
         tietePts.forEachIndexed { i, (lat, lon) ->
-            val x = mapLonToX(lon, w, zoom, panX)
-            val y = mapLatToY(lat, h, zoom, panY)
+            val x = mapLonToX(lon, w, h, zoom, panX)
+            val y = mapLatToY(lat, w, h, zoom, panY)
             if (i == 0) moveTo(x, y) else lineTo(x, y)
         }
     }
@@ -2196,8 +1923,8 @@ private fun DrawScope.drawCartographicBasemap(
     )
     val sp280Path = Path().apply {
         sp280Pts.forEachIndexed { i, (lat, lon) ->
-            val x = mapLonToX(lon, w, zoom, panX)
-            val y = mapLatToY(lat, h, zoom, panY)
+            val x = mapLonToX(lon, w, h, zoom, panX)
+            val y = mapLatToY(lat, w, h, zoom, panY)
             if (i == 0) moveTo(x, y) else lineTo(x, y)
         }
     }
@@ -2209,25 +1936,14 @@ private fun DrawScope.drawCartographicBasemap(
     )
     val sp310Path = Path().apply {
         sp310Pts.forEachIndexed { i, (lat, lon) ->
-            val x = mapLonToX(lon, w, zoom, panX)
-            val y = mapLatToY(lat, h, zoom, panY)
+            val x = mapLonToX(lon, w, h, zoom, panX)
+            val y = mapLatToY(lat, w, h, zoom, panY)
             if (i == 0) moveTo(x, y) else lineTo(x, y)
         }
     }
     drawPath(sp310Path, color = roadColor2.copy(alpha = 0.70f), style = Stroke(width = 1.6f * zoom.coerceIn(0.8f, 2.0f)))
 
-    // Legenda Cartográfica discreta
-    val legendColor = when (bgTheme) {
-        1 -> Color(0xFF86EFAC)
-        2 -> Color(0xFF0F172A)
-        else -> Color(0xFF10B981)
-    }
-    safeDrawText(
-        textMeasurer = textMeasurer,
-        text = "Base Cartográfica SP • Bacias & Rodovias",
-        topLeft = Offset(10f, h - 18f),
-        style = TextStyle(color = legendColor, fontSize = 8.sp, fontWeight = FontWeight.Bold)
-    )
+    // (legenda "Base Cartográfica" removida: ficava sob a linha de info do mapa)
 }
 
 // -------------------------------------------------------------
