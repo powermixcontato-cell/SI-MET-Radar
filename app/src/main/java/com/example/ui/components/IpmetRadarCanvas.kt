@@ -178,6 +178,7 @@ fun IpmetRadarCanvas(
 
     // Windy layer mode: 0 = Vento Fluído (Streamlines), 1 = Radar Doppler (Chuva), 2 = Temperatura (°C)
     var windyLayer by remember { mutableIntStateOf(0) }
+    var showWindCurrents by remember { mutableStateOf(true) }
 
     // Windy Sonde on tap
     var sondeOffset by remember { mutableStateOf<Offset?>(null) }
@@ -493,6 +494,19 @@ fun IpmetRadarCanvas(
                 ),
                 modifier = Modifier.height(32.dp).testTag("chip_format_cartographic")
             )
+            FilterChip(
+                selected = showWindCurrents,
+                onClick = { showWindCurrents = !showWindCurrents },
+                label = { Text(if (showWindCurrents) "💨 Vento ON" else "💨 Vento OFF", fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false) },
+                leadingIcon = {
+                    Icon(Icons.Default.WindPower, contentDescription = null, modifier = Modifier.size(13.dp))
+                },
+                colors = FilterChipDefaults.filterChipColors(
+                    selectedContainerColor = Color(0xFF0284C7).copy(alpha = 0.25f),
+                    selectedLabelColor = Color(0xFF38BDF8)
+                ),
+                modifier = Modifier.height(32.dp).testTag("chip_toggle_wind_currents")
+            )
         }
         }
 
@@ -680,7 +694,7 @@ fun IpmetRadarCanvas(
                 drawSpOutline(statePath, mapTheme)
 
                 // Partículas de vento (Windy) por cima do campo
-                if (effectiveMapFormat == 0 && windyLayer != 1 && hasWindData) {
+                if (showWindCurrents && hasWindData) {
                     drawWindyWindParticles(windParticles, w, h, effectiveBgTheme)
                 }
 

@@ -17,12 +17,15 @@ import com.example.data.local.entity.RegionSubscriptionEntity
 import com.example.data.local.entity.UserPreferencesEntity
 import com.example.data.local.entity.WeatherAlertEntity
 import com.example.data.local.entity.WeatherStationEntity
+import com.example.data.model.WeatherNewsItem
+import com.example.data.model.WeatherNewsProvider
 import com.example.data.remote.GeminiMapsWeatherService
 import com.example.data.remote.MapsRainPrecisionResult
 import com.example.data.repository.AgroLoadState
 import com.example.data.repository.AgroSeries
 import com.example.data.repository.WeatherRepository
 import com.example.util.NotificationHelper
+import com.example.util.PdfExportOptions
 import com.example.util.PdfExporter
 import com.example.util.ShareHelper
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -190,6 +193,27 @@ class WeatherViewModel(private val repository: WeatherRepository) : ViewModel() 
             repository.ensureAgroSeries(targetId)
         }
     }
+
+    // Alternar entre Mapa Nativo de Radar/Vento (Canvas 60fps) e Mapa Interativo Windy (WebView)
+    private val _isWindyWebViewEnabled = MutableStateFlow(false)
+    val isWindyWebViewEnabled: StateFlow<Boolean> = _isWindyWebViewEnabled.asStateFlow()
+
+    fun setWindyWebViewEnabled(enabled: Boolean) {
+        _isWindyWebViewEnabled.value = enabled
+    }
+
+    fun toggleWindyWebView() {
+        _isWindyWebViewEnabled.value = !_isWindyWebViewEnabled.value
+    }
+
+    // Notícias do clima e avisos meteorológicos da região selecionada ou GPS
+    val regionalWeatherNews: StateFlow<List<WeatherNewsItem>> = combine(
+        currentStation,
+        allAlerts,
+        _userCoordinates
+    ) { station, alerts, coords ->
+        WeatherNewsProvider.getNewsForRegion(station, alerts, coords)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     // Active storm cells modeled from IPMet radar reflectivity
     val activeStormCells: List<StormCellTrajectory> = listOf(
@@ -700,6 +724,38 @@ class WeatherViewModel(private val repository: WeatherRepository) : ViewModel() 
             val alerts = allAlerts.value
             val trends = climateTrends.value
             val file = PdfExporter.generateWeatherReportPdf(context, station, daily, alerts, trends)
+            onResult(file)
+        }
+    }
+
+    fun exportCustomWeatherReportPdf(
+        context: Context,
+        options: PdfExportOptions = PdfExportOptions(),
+        onResult: (File?) -> Unit
+    ) {
+        viewModelScope.launch {
+            val station = currentStation.value ?: allStations.value.firstOrNull()
+            if (station == null) {
+                onResult(null)
+                return@launch
+            }
+            val daily = dailyForecasts.value
+            val hourly = hourlyForecasts.value
+            val alerts = allAlerts.value
+            val trends = climateTrends.value
+            val news = regionalWeatherNews.value
+            val coords = _userCoordinates.value
+            val file = PdfExporter.generateEnhancedWeatherReportPdf(
+                context = context,
+                station = station,
+                dailyForecasts = daily,
+                hourlyForecasts = hourly,
+                alerts = alerts,
+                climateTrends = trends,
+                newsList = news,
+                userCoords = coords,
+                options = options
+            )
             onResult(file)
         }
     }

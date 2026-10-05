@@ -23,13 +23,16 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Air
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Directions
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.PictureAsPdf
+import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Sensors
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Thunderstorm
 import androidx.compose.material.icons.filled.Warning
@@ -51,7 +54,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -65,10 +70,12 @@ import com.example.ui.components.GoogleMapsRainPrecisionCard
 import com.example.ui.components.HourlyRainInspectorCard
 import com.example.ui.components.IpmetRadarCanvas
 import com.example.ui.components.OfflineStatusBar
+import com.example.ui.components.PdfExportDialog
 import com.example.ui.components.RainForecast7DaysCard
 import com.example.ui.components.RegionalRainfallCard
+import com.example.ui.components.RegionalWeatherNewsCard
 import com.example.ui.components.StatePrecipitationForecastMap
-import com.example.ui.components.AgroClimaSection
+import com.example.ui.components.WindyWebViewCard
 import com.example.util.PdfExporter
 import com.example.viewmodel.WeatherViewModel
 
@@ -101,6 +108,10 @@ fun RadarMapScreen(
     val liveTimeMillis by viewModel.liveCurrentTime.collectAsState()
     val mapFormat by viewModel.mapFormat.collectAsState()
     val mapBackgroundTheme by viewModel.mapBackgroundTheme.collectAsState()
+    val isWindyWebViewEnabled by viewModel.isWindyWebViewEnabled.collectAsState()
+    val regionalWeatherNews by viewModel.regionalWeatherNews.collectAsState()
+
+    var showPdfExportDialog by remember { mutableStateOf(false) }
 
     val locationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
@@ -158,20 +169,12 @@ fun RadarMapScreen(
                     }
 
                     IconButton(
-                        onClick = {
-                            viewModel.exportWeatherReportPdf(context) { file ->
-                                if (file != null) {
-                                    PdfExporter.openOrSharePdf(context, file)
-                                } else {
-                                    Toast.makeText(context, "Erro ao gerar PDF", Toast.LENGTH_SHORT).show()
-                                }
-                            }
-                        },
+                        onClick = { showPdfExportDialog = true },
                         modifier = Modifier.testTag("btn_pdf_radar")
                     ) {
                         Icon(
                             imageVector = Icons.Default.PictureAsPdf,
-                            contentDescription = "Exportar PDF",
+                            contentDescription = "Exportar Relatório PDF",
                             tint = MaterialTheme.colorScheme.primary
                         )
                     }
@@ -406,48 +409,103 @@ fun RadarMapScreen(
             }
         }
 
-        // Fullscreen Radar Map Action Button
+        // Fullscreen Radar Map Action Button & Selector de Modo (Nativo vs Windy Web)
         item {
-            Button(
-                onClick = { viewModel.setExpandedMapOpen(true) },
-                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                shape = RoundedCornerShape(12.dp),
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 4.dp)
-                    .testTag("button_open_fullscreen_radar_main")
             ) {
-                Icon(Icons.Default.Fullscreen, contentDescription = null, modifier = Modifier.size(20.dp))
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Abrir Mapa da Chuva em Tela Cheia", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    FilterChip(
+                        selected = !isWindyWebViewEnabled,
+                        onClick = { viewModel.setWindyWebViewEnabled(false) },
+                        label = { Text("Radar & Vento Nativo", fontSize = 11.sp, fontWeight = FontWeight.SemiBold) },
+                        leadingIcon = {
+                            Icon(Icons.Default.Sensors, contentDescription = null, modifier = Modifier.size(14.dp))
+                        },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = MaterialTheme.colorScheme.primary,
+                            selectedLabelColor = MaterialTheme.colorScheme.onPrimary
+                        ),
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("chip_mode_native_radar")
+                    )
+
+                    FilterChip(
+                        selected = isWindyWebViewEnabled,
+                        onClick = { viewModel.setWindyWebViewEnabled(true) },
+                        label = { Text("Windy Web Ao Vivo", fontSize = 11.sp, fontWeight = FontWeight.SemiBold) },
+                        leadingIcon = {
+                            Icon(Icons.Default.Air, contentDescription = null, modifier = Modifier.size(14.dp))
+                        },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = Color(0xFF0284C7),
+                            selectedLabelColor = Color.White
+                        ),
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("chip_mode_windy_webview")
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                Button(
+                    onClick = { viewModel.setExpandedMapOpen(true) },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("button_open_fullscreen_radar_main")
+                ) {
+                    Icon(Icons.Default.Fullscreen, contentDescription = null, modifier = Modifier.size(20.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Abrir Mapa da Chuva em Tela Cheia", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                }
             }
         }
 
-        // Interactive Radar Canvas Component with Trajectory Vectors
-        item {
-            IpmetRadarCanvas(
-                stations = stations,
-                activeCenter = activeCenter,
-                timeStep = timeStep,
-                isPlaying = isPlaying,
-                isEnergySaver = prefs.isEnergySaverEnabled,
-                selectedStation = currentStation,
-                stormCells = viewModel.activeStormCells,
-                showTrajectories = showTrajectories,
-                selectedStormCell = selectedStormCell,
-                userCoordinates = userCoordinates,
-                onStationSelected = { viewModel.selectStation(it.id) },
-                onCenterChanged = { viewModel.setRadarCenter(it) },
-                onTimeStepChanged = { viewModel.setRadarTimeStep(it) },
-                onTogglePlay = { viewModel.toggleRadarPlayback() },
-                onSelectStormCell = { viewModel.selectStormCell(it) },
-                onToggleTrajectories = { viewModel.toggleTrajectories() },
-                onOpenExpandedMap = { viewModel.setExpandedMapOpen(true) },
-                mapFormat = mapFormat,
-                onMapFormatChanged = { viewModel.setMapFormat(it) },
-                mapBackgroundTheme = mapBackgroundTheme,
-                onMapBackgroundThemeChanged = { viewModel.setMapBackgroundTheme(it) }
-            )
+        // Mapa Principal: Windy WebView Interativo OU IpmetRadarCanvas Nativo com Correntes de Vento
+        if (isWindyWebViewEnabled) {
+            item {
+                WindyWebViewCard(
+                    station = currentStation,
+                    userCoordinates = userCoordinates,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                    onOpenNativeRadar = { viewModel.setWindyWebViewEnabled(false) }
+                )
+            }
+        } else {
+            item {
+                IpmetRadarCanvas(
+                    stations = stations,
+                    activeCenter = activeCenter,
+                    timeStep = timeStep,
+                    isPlaying = isPlaying,
+                    isEnergySaver = prefs.isEnergySaverEnabled,
+                    selectedStation = currentStation,
+                    stormCells = viewModel.activeStormCells,
+                    showTrajectories = showTrajectories,
+                    selectedStormCell = selectedStormCell,
+                    userCoordinates = userCoordinates,
+                    onStationSelected = { viewModel.selectStation(it.id) },
+                    onCenterChanged = { viewModel.setRadarCenter(it) },
+                    onTimeStepChanged = { viewModel.setRadarTimeStep(it) },
+                    onTogglePlay = { viewModel.toggleRadarPlayback() },
+                    onSelectStormCell = { viewModel.selectStormCell(it) },
+                    onToggleTrajectories = { viewModel.toggleTrajectories() },
+                    onOpenExpandedMap = { viewModel.setExpandedMapOpen(true) },
+                    mapFormat = mapFormat,
+                    onMapFormatChanged = { viewModel.setMapFormat(it) },
+                    mapBackgroundTheme = mapBackgroundTheme,
+                    onMapBackgroundThemeChanged = { viewModel.setMapBackgroundTheme(it) }
+                )
+            }
         }
 
         // Diagnóstico de Precisão de Chuva com Google Maps Grounding & Gemini 3.5 Flash
@@ -485,6 +543,15 @@ fun RadarMapScreen(
             )
         }
 
+        // Notícias do Clima & Alertas Regionais Baseadas na Localização / GPS
+        item {
+            RegionalWeatherNewsCard(
+                newsList = regionalWeatherNews,
+                currentRegionName = currentStation?.region ?: "Estado de São Paulo",
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
+            )
+        }
+
         // Regional Rainfall Accumulation (mm) across São Paulo State
         item {
             RegionalRainfallCard(
@@ -514,16 +581,6 @@ fun RadarMapScreen(
                 onMapBackgroundThemeChanged = { viewModel.setMapBackgroundTheme(it) },
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
             )
-        }
-
-        // AgroClima SP - Clima para a Agricultura e Produtores Rurais
-        currentStation?.let { st ->
-            item {
-                AgroClimaSection(
-                    station = st,
-                    ciiagroRecord = currentCiiagro
-                )
-            }
         }
 
         // Information Callout on Radar UNESP
@@ -598,6 +655,14 @@ fun RadarMapScreen(
             mapBackgroundTheme = mapBackgroundTheme,
             onMapBackgroundThemeChanged = { viewModel.setMapBackgroundTheme(it) },
             onDismiss = { viewModel.setExpandedMapOpen(false) }
+        )
+    }
+
+    // Modal de Exportação Avançada em PDF com Funções e Notícias Regionais
+    if (showPdfExportDialog) {
+        PdfExportDialog(
+            viewModel = viewModel,
+            onDismiss = { showPdfExportDialog = false }
         )
     }
 }

@@ -10,13 +10,25 @@ import android.graphics.pdf.PdfDocument
 import androidx.core.content.FileProvider
 import com.example.data.local.entity.ClimateTrendEntity
 import com.example.data.local.entity.DailyForecastEntity
+import com.example.data.local.entity.HourlyForecastEntity
 import com.example.data.local.entity.WeatherAlertEntity
 import com.example.data.local.entity.WeatherStationEntity
+import com.example.data.model.WeatherNewsItem
 import java.io.File
 import java.io.FileOutputStream
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+
+data class PdfExportOptions(
+    val includeDailyForecast: Boolean = true,
+    val includeHourlyForecast: Boolean = true,
+    val includeRegionalNews: Boolean = true,
+    val includeAlerts: Boolean = true,
+    val includeWindAnalysis: Boolean = true,
+    val includeStationMetrics: Boolean = true,
+    val includeGpsLocation: Boolean = true
+)
 
 object PdfExporter {
 
@@ -414,6 +426,293 @@ object PdfExporter {
         return try {
             val reportsDir = File(context.cacheDir, "reports").apply { mkdirs() }
             val fileName = "SIMet_AgroClima_${station.id}_${System.currentTimeMillis()}.pdf"
+            val file = File(reportsDir, fileName)
+            FileOutputStream(file).use { out ->
+                document.writeTo(out)
+            }
+            document.close()
+            file
+        } catch (_: Exception) {
+            document.close()
+            null
+        }
+    }
+
+    /**
+     * Gera relatório completo e personalizável com múltiplas páginas,
+     * incluindo Correntes de Vento, Análise Horária, Previsão 7 Dias,
+     * Notícias do Clima Regionais e Alertas da Defesa Civil.
+     */
+    fun generateEnhancedWeatherReportPdf(
+        context: Context,
+        station: WeatherStationEntity,
+        dailyForecasts: List<DailyForecastEntity>,
+        hourlyForecasts: List<HourlyForecastEntity>,
+        alerts: List<WeatherAlertEntity>,
+        climateTrends: List<ClimateTrendEntity>,
+        newsList: List<WeatherNewsItem>,
+        userCoords: Pair<Double, Double>?,
+        options: PdfExportOptions = PdfExportOptions()
+    ): File? {
+        val document = PdfDocument()
+
+        val paint = Paint().apply { isAntiAlias = true }
+        val titlePaint = Paint().apply {
+            isAntiAlias = true
+            color = Color.rgb(0, 50, 100)
+            textSize = 16f
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        }
+        val subPaint = Paint().apply {
+            isAntiAlias = true
+            color = Color.rgb(80, 90, 100)
+            textSize = 10f
+        }
+        val textPaint = Paint().apply {
+            isAntiAlias = true
+            color = Color.rgb(30, 30, 30)
+            textSize = 9.5f
+        }
+        val boldPaint = Paint().apply {
+            isAntiAlias = true
+            color = Color.rgb(20, 20, 20)
+            textSize = 9.5f
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        }
+
+        // ==========================================
+        // PÁGINA 1: Estação, Vento, Horária & Radar
+        // ==========================================
+        val page1Info = PdfDocument.PageInfo.Builder(595, 842, 1).create()
+        val page1 = document.startPage(page1Info)
+        val canvas1: Canvas = page1.canvas
+
+        // Header Background Banner
+        paint.color = Color.rgb(10, 30, 60)
+        canvas1.drawRect(0f, 0f, 595f, 90f, paint)
+
+        titlePaint.color = Color.WHITE
+        canvas1.drawText("SI Met RADAR • Boletim Meteorológico & Vento", 30f, 35f, titlePaint)
+        subPaint.color = Color.rgb(0, 229, 255)
+        canvas1.drawText("RELATÓRIO CLIMÁTICO, COBERTURA DOPPLER & FLUXO AEROLÓGICO", 30f, 55f, subPaint)
+        val dateStr = SimpleDateFormat("dd/MM/yyyy • HH:mm", Locale("pt", "BR")).format(Date())
+        subPaint.color = Color.rgb(200, 210, 225)
+        subPaint.textSize = 8.5f
+        val gpsInfo = if (userCoords != null) " | GPS: ${String.format(Locale.US, "%.3f", userCoords.first)}, ${String.format(Locale.US, "%.3f", userCoords.second)}" else ""
+        canvas1.drawText("Emitido em: $dateStr$gpsInfo | Rede IPMet UNESP Bauru & Prudente", 30f, 75f, subPaint)
+
+        var y1 = 115f
+
+        // 1. Dados da Estação
+        if (options.includeStationMetrics) {
+            paint.color = Color.rgb(240, 245, 250)
+            canvas1.drawRoundRect(25f, y1 - 15f, 570f, y1 + 82f, 8f, 8f, paint)
+
+            boldPaint.textSize = 12f
+            boldPaint.color = Color.rgb(0, 60, 120)
+            canvas1.drawText("Local Monitorado: ${station.name} (${station.region})", 35f, y1 + 5f, boldPaint)
+
+            boldPaint.textSize = 9.5f
+            boldPaint.color = Color.rgb(30, 30, 30)
+            canvas1.drawText("Condição Atual: ${station.weatherCondition}", 35f, y1 + 25f, boldPaint)
+            canvas1.drawText("Temperatura: ${station.currentTemp}°C (Sensação: ${station.feelsLike}°C)", 35f, y1 + 42f, textPaint)
+            canvas1.drawText("Mínima / Máxima: ${station.minTemp}°C / ${station.maxTemp}°C", 35f, y1 + 58f, textPaint)
+
+            canvas1.drawText("Umidade: ${station.humidity}% | Pressão: ${station.pressure} hPa", 300f, y1 + 25f, textPaint)
+            canvas1.drawText("Índice UV: ${station.uvIndex} | Qualidade do Ar (AQI): ${station.aqi}", 300f, y1 + 42f, textPaint)
+            canvas1.drawText("Precipitação: ${station.rainVolumeMm} mm (${station.rainProbability}%)", 300f, y1 + 58f, boldPaint)
+            canvas1.drawText("Radar Doppler: ${station.dbzReflectivity} dBZ (Operação Contínua)", 300f, y1 + 74f, textPaint)
+
+            y1 += 115f
+        }
+
+        // 2. Análise de Correntes de Vento (Estilo Windy)
+        if (options.includeWindAnalysis) {
+            boldPaint.textSize = 11f
+            boldPaint.color = Color.rgb(2, 132, 199)
+            canvas1.drawText("💨 Dinâmica de Correntes de Vento e Deslocamento Atmosférico", 25f, y1, boldPaint)
+            y1 += 14f
+
+            paint.color = Color.rgb(240, 249, 255)
+            canvas1.drawRoundRect(25f, y1 - 4f, 570f, y1 + 48f, 6f, 6f, paint)
+
+            val windSpeedText = "${String.format(Locale("pt", "BR"), "%.1f", station.windSpeed)} km/h"
+            val gustText = "${String.format(Locale("pt", "BR"), "%.1f", station.windSpeed * 1.45)} km/h"
+            textPaint.textSize = 9f
+            canvas1.drawText("Vento Médio à Superfície: $windSpeedText | Quadrante: ${station.windDirection} | Rajada Estimada: $gustText", 35f, y1 + 14f, boldPaint)
+            canvas1.drawText("As partículas aerológicas e linhas de corrente do padrão Windy indicam transporte de massas de ar com estabilidade regional.", 35f, y1 + 28f, textPaint)
+            canvas1.drawText("Radares IPMet operando em modo Doppler volumétrico de 240 km cobrindo toda a bacia hidrográfica paulista.", 35f, y1 + 42f, textPaint)
+
+            y1 += 68f
+        }
+
+        // 3. Previsão Horária Detalhada (Próximas 10-12 Horas)
+        if (options.includeHourlyForecast && hourlyForecasts.isNotEmpty()) {
+            boldPaint.textSize = 11f
+            boldPaint.color = Color.rgb(0, 50, 100)
+            canvas1.drawText("⏱️ Inspeção Horária de Chuva e Temperatura (Próximas Horas)", 25f, y1, boldPaint)
+            y1 += 14f
+
+            // Table Header
+            paint.color = Color.rgb(226, 232, 240)
+            canvas1.drawRect(25f, y1, 570f, y1 + 18f, paint)
+            boldPaint.textSize = 8.5f
+            boldPaint.color = Color.rgb(30, 41, 59)
+            canvas1.drawText("Horário", 35f, y1 + 12f, boldPaint)
+            canvas1.drawText("Condição", 100f, y1 + 12f, boldPaint)
+            canvas1.drawText("Temp", 240f, y1 + 12f, boldPaint)
+            canvas1.drawText("Chuva mm", 310f, y1 + 12f, boldPaint)
+            canvas1.drawText("Probabilidade", 390f, y1 + 12f, boldPaint)
+            canvas1.drawText("Vento / Fluxo", 480f, y1 + 12f, boldPaint)
+            y1 += 18f
+
+            hourlyForecasts.take(10).forEachIndexed { idx, hr ->
+                paint.color = if (idx % 2 == 0) Color.WHITE else Color.rgb(248, 250, 252)
+                canvas1.drawRect(25f, y1, 570f, y1 + 16f, paint)
+
+                textPaint.textSize = 8.5f
+                canvas1.drawText(hr.hourText, 35f, y1 + 11f, boldPaint)
+                canvas1.drawText(hr.condition.take(24), 100f, y1 + 11f, textPaint)
+                canvas1.drawText("${hr.temp}°C", 240f, y1 + 11f, textPaint)
+                canvas1.drawText("${hr.rainVolumeMm} mm", 310f, y1 + 11f, if (hr.rainVolumeMm > 0) boldPaint else textPaint)
+                canvas1.drawText("${hr.rainProbability}%", 390f, y1 + 11f, textPaint)
+                canvas1.drawText(station.windDirection, 480f, y1 + 11f, textPaint)
+
+                y1 += 16f
+            }
+            y1 += 18f
+        }
+
+        // Rodapé da Página 1
+        paint.color = Color.rgb(150, 160, 170)
+        canvas1.drawLine(25f, 805f, 570f, 805f, paint)
+        textPaint.textSize = 8f
+        textPaint.color = Color.rgb(100, 110, 120)
+        canvas1.drawText("Página 1/2 • SI Met RADAR: Monitoramento em Tempo Real do Estado de São Paulo", 25f, 820f, textPaint)
+
+        document.finishPage(page1)
+
+        // ==========================================
+        // PÁGINA 2: Previsão 7 Dias, Notícias & Alertas
+        // ==========================================
+        val page2Info = PdfDocument.PageInfo.Builder(595, 842, 2).create()
+        val page2 = document.startPage(page2Info)
+        val canvas2: Canvas = page2.canvas
+
+        // Header Background Banner Página 2
+        paint.color = Color.rgb(10, 30, 60)
+        canvas2.drawRect(0f, 0f, 595f, 60f, paint)
+        titlePaint.color = Color.WHITE
+        titlePaint.textSize = 14f
+        canvas2.drawText("Previsão Estendida & Notícias do Clima Regional", 30f, 30f, titlePaint)
+        subPaint.color = Color.rgb(0, 229, 255)
+        subPaint.textSize = 8.5f
+        canvas2.drawText("Região de ${station.name} (${station.region}) | Fonte Oficial Defesa Civil, IPMet e INMET", 30f, 48f, subPaint)
+
+        var y2 = 85f
+
+        // 1. Tabela de Previsão 7 Dias
+        if (options.includeDailyForecast && dailyForecasts.isNotEmpty()) {
+            boldPaint.textSize = 11f
+            boldPaint.color = Color.rgb(0, 50, 100)
+            canvas2.drawText("📅 Previsão Estendida para os Próximos 7 Dias", 25f, y2, boldPaint)
+            y2 += 14f
+
+            paint.color = Color.rgb(220, 230, 242)
+            canvas2.drawRect(25f, y2, 570f, y2 + 18f, paint)
+            boldPaint.textSize = 8.5f
+            boldPaint.color = Color.rgb(20, 40, 70)
+            canvas2.drawText("Dia / Data", 35f, y2 + 12f, boldPaint)
+            canvas2.drawText("Condição Prevista", 120f, y2 + 12f, boldPaint)
+            canvas2.drawText("Mín / Máx", 310f, y2 + 12f, boldPaint)
+            canvas2.drawText("Prob. Chuva", 410f, y2 + 12f, boldPaint)
+            canvas2.drawText("Acumulado", 490f, y2 + 12f, boldPaint)
+            y2 += 18f
+
+            dailyForecasts.take(7).forEachIndexed { index, item ->
+                paint.color = if (index % 2 == 0) Color.WHITE else Color.rgb(248, 249, 250)
+                canvas2.drawRect(25f, y2, 570f, y2 + 16f, paint)
+
+                textPaint.textSize = 8.5f
+                canvas2.drawText("${item.dayOfWeek} (${item.dateText})", 35f, y2 + 11f, boldPaint)
+                canvas2.drawText(item.condition, 120f, y2 + 11f, textPaint)
+                canvas2.drawText("${item.minTemp}°C / ${item.maxTemp}°C", 310f, y2 + 11f, textPaint)
+                canvas2.drawText("${item.rainProbability}%", 410f, y2 + 11f, textPaint)
+                canvas2.drawText("${item.rainVolumeMm} mm", 490f, y2 + 11f, boldPaint)
+                y2 += 16f
+            }
+            y2 += 22f
+        }
+
+        // 2. Alertas Meteorológicos e Defesa Civil
+        if (options.includeAlerts) {
+            boldPaint.textSize = 11f
+            boldPaint.color = Color.rgb(185, 28, 28)
+            canvas2.drawText("🚨 Avisos Meteorológicos Oficiais (Defesa Civil & INMET)", 25f, y2, boldPaint)
+            y2 += 14f
+
+            val activeAlerts = alerts.take(2)
+            if (activeAlerts.isNotEmpty()) {
+                activeAlerts.forEach { alert ->
+                    paint.color = Color.rgb(254, 242, 242)
+                    canvas2.drawRoundRect(25f, y2, 570f, y2 + 38f, 4f, 4f, paint)
+                    boldPaint.textSize = 9f
+                    boldPaint.color = Color.rgb(185, 28, 28)
+                    canvas2.drawText("[${alert.severity}] ${alert.title} - ${alert.regionName}", 35f, y2 + 14f, boldPaint)
+                    textPaint.textSize = 8f
+                    canvas2.drawText(alert.description.take(110), 35f, y2 + 28f, textPaint)
+                    y2 += 44f
+                }
+            } else {
+                paint.color = Color.rgb(240, 253, 244)
+                canvas2.drawRoundRect(25f, y2, 570f, y2 + 25f, 4f, 4f, paint)
+                textPaint.textSize = 8.5f
+                textPaint.color = Color.rgb(21, 128, 61)
+                canvas2.drawText("✅ Nenhum alerta meteorológico severo em vigor para a região no momento.", 35f, y2 + 16f, textPaint)
+                y2 += 32f
+            }
+            y2 += 10f
+        }
+
+        // 3. Notícias do Clima Regionais Baseadas na Localização / GPS
+        if (options.includeRegionalNews && newsList.isNotEmpty()) {
+            boldPaint.textSize = 11f
+            boldPaint.color = Color.rgb(59, 130, 246)
+            canvas2.drawText("📰 Notícias do Clima & Boletins Regionais (${station.region})", 25f, y2, boldPaint)
+            y2 += 14f
+
+            newsList.take(3).forEach { news ->
+                paint.color = Color.rgb(248, 250, 252)
+                canvas2.drawRoundRect(25f, y2, 570f, y2 + 45f, 6f, 6f, paint)
+
+                boldPaint.textSize = 9f
+                boldPaint.color = Color.rgb(15, 23, 42)
+                canvas2.drawText("${news.iconEmoji} ${news.title}", 35f, y2 + 14f, boldPaint)
+
+                textPaint.textSize = 8f
+                textPaint.color = Color.rgb(71, 85, 105)
+                canvas2.drawText(news.summary.take(115), 35f, y2 + 28f, textPaint)
+
+                subPaint.textSize = 7.5f
+                subPaint.color = Color.rgb(148, 163, 184)
+                canvas2.drawText("Fonte: ${news.source} • Categoria: ${news.category}", 35f, y2 + 39f, subPaint)
+
+                y2 += 50f
+            }
+        }
+
+        // Rodapé da Página 2
+        paint.color = Color.rgb(150, 160, 170)
+        canvas2.drawLine(25f, 805f, 570f, 805f, paint)
+        textPaint.textSize = 8f
+        textPaint.color = Color.rgb(100, 110, 120)
+        canvas2.drawText("Página 2/2 • Documento exportado via SI Met RADAR. Dados gerados para fins informativos e de planejamento.", 25f, 820f, textPaint)
+
+        document.finishPage(page2)
+
+        return try {
+            val reportsDir = File(context.cacheDir, "reports").apply { mkdirs() }
+            val fileName = "SIMet_BoletimCompleto_${station.id}_${System.currentTimeMillis()}.pdf"
             val file = File(reportsDir, fileName)
             FileOutputStream(file).use { out ->
                 document.writeTo(out)
