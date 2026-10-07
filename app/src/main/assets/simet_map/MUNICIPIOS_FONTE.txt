@@ -1,0 +1,4 @@
+municipios_sp_pr_rs.json: código IBGE -> [latitude, longitude] da sede municipal (SP, PR e RS, 1541 municípios).
+Fonte: kelvins/municipios-brasileiros (https://github.com/kelvins/municipios-brasileiros), licença MIT,
+Copyright (c) 2016 Kelvin S. do Prado; coordenadas compiladas a partir do IBGE. Baixado em 07/10/2026.
+Uso no app: posicionar no mapa os pluviômetros do CEMADEN agregados por município (o JSON público do CEMADEN não traz coordenadas).

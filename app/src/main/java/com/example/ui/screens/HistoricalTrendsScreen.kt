@@ -1,5 +1,7 @@
 package com.example.ui.screens
 
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -26,7 +28,7 @@ fun HistoricalTrendsScreen(
     viewModel: WeatherViewModel,
     modifier: Modifier = Modifier
 ) {
-    val trends by viewModel.climateTrends.collectAsState()
+    val trends by viewModel.climateTrends.collectAsStateWithLifecycle()
 
     LazyColumn(
         modifier = modifier

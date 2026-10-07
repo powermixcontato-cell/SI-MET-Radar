@@ -45,7 +45,6 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.util.PdfExportOptions
 import com.example.util.PdfExporter
 import com.example.viewmodel.WeatherViewModel
 import java.io.File
@@ -58,12 +57,11 @@ fun PdfExportDialog(
     val context = LocalContext.current
     var isGenerating by remember { mutableStateOf(false) }
 
-    var incDaily by remember { mutableStateOf(true) }
-    var incHourly by remember { mutableStateOf(true) }
-    var incNews by remember { mutableStateOf(true) }
+    // v5.1: seções do boletim novo (cabeçalho com app/estado/data BRT e numeração de páginas são sempre incluídos)
+    var incMap by remember { mutableStateOf(true) }
+    var inc15 by remember { mutableStateOf(true) }
     var incAlerts by remember { mutableStateOf(true) }
-    var incWind by remember { mutableStateOf(true) }
-    var incStation by remember { mutableStateOf(true) }
+    var incRivers by remember { mutableStateOf(true) }
 
     AlertDialog(
         onDismissRequest = { if (!isGenerating) onDismiss() },
@@ -121,12 +119,15 @@ fun PdfExportDialog(
                 )
                 Spacer(modifier = Modifier.height(10.dp))
 
-                ExportCheckboxRow("📅 Previsão Estendida 7 Dias", incDaily) { incDaily = it }
-                ExportCheckboxRow("⏱️ Inspeção Horária (24h de Chuva/Vento)", incHourly) { incHourly = it }
-                ExportCheckboxRow("📰 Notícias do Clima & Boletim Regional", incNews) { incNews = it }
-                ExportCheckboxRow("🚨 Avisos Meteorológicos & Defesa Civil", incAlerts) { incAlerts = it }
-                ExportCheckboxRow("💨 Dinâmica de Correntes de Vento", incWind) { incWind = it }
-                ExportCheckboxRow("🌡️ Dados e Índices da Estação", incStation) { incStation = it }
+                ExportCheckboxRow("🗺️ Mapa de chuva (último quadro do radar)", incMap) { incMap = it }
+                ExportCheckboxRow("📅 Previsão 7 dias (sempre) + dias 8 a 15", inc15) { inc15 = it }
+                ExportCheckboxRow("🚨 Alertas ativos do estado", incAlerts) { incAlerts = it }
+                ExportCheckboxRow("🌊 Rios monitorados (enchentes)", incRivers) { incRivers = it }
+                Text(
+                    text = "A lista de fontes é incluída no final do documento.",
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
 
                 if (isGenerating) {
                     Spacer(modifier = Modifier.height(14.dp))
@@ -150,15 +151,13 @@ fun PdfExportDialog(
             Button(
                 onClick = {
                     isGenerating = true
-                    val options = PdfExportOptions(
-                        includeDailyForecast = incDaily,
-                        includeHourlyForecast = incHourly,
-                        includeRegionalNews = incNews,
+                    val options = com.example.util.MainReportOptions(
+                        includeRainMap = incMap,
+                        include15Days = inc15,
                         includeAlerts = incAlerts,
-                        includeWindAnalysis = incWind,
-                        includeStationMetrics = incStation
+                        includeRivers = incRivers
                     )
-                    viewModel.exportCustomWeatherReportPdf(context, options) { file ->
+                    viewModel.exportMainReportPdf(context, options) { file ->
                         isGenerating = false
                         if (file != null && file.exists()) {
                             PdfExporter.openOrSharePdf(context, file)
