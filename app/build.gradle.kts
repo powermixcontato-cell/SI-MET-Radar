@@ -1,3 +1,4 @@
+import java.util.Properties
 import com.google.gms.googleservices.GoogleServicesPlugin.MissingGoogleServicesStrategy
 
 plugins {
@@ -9,6 +10,25 @@ plugins {
   alias(libs.plugins.google.services)
 }
 
+// Servidor próprio do SI-MET (proxy/cache da Open-Meteo e dos avisos do INMET).
+// Ordem de leitura: -PSIMET_API_BASE_URL=... / gradle.properties  →  variável de ambiente  →  arquivo .env  →  "" (vazio).
+// Vazio = o app continua chamando Open-Meteo e INMET diretamente (comportamento antigo).
+fun simetSetting(name: String): String {
+  providers.gradleProperty(name).orNull?.takeIf { it.isNotBlank() }?.let { return it.trim() }
+  providers.environmentVariable(name).orNull?.takeIf { it.isNotBlank() }?.let { return it.trim() }
+  val envFile = rootProject.file(".env")
+  if (envFile.exists()) {
+    envFile.readLines().map { it.trim() }
+      .firstOrNull { it.startsWith("$name=") }
+      ?.substringAfter("=")?.trim()?.trim('"')
+      ?.takeIf { it.isNotBlank() }
+      ?.let { return it }
+  }
+  return ""
+}
+val simetApiBaseUrl = simetSetting("SIMET_API_BASE_URL")
+val simetApiKey = simetSetting("SIMET_API_KEY")
+
 android {
   namespace = "com.example"
   compileSdk { version = release(36) { minorApiLevel = 1 } }
@@ -17,48 +37,59 @@ android {
     applicationId = "com.aistudio.ipmetradar.spwthr"
     minSdk = 24
     targetSdk = 36
-    versionCode = 5
-    versionName = "5.0"
+    versionCode = 8
+    versionName = "5.1"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
-    buildConfigField("String", "SIMET_API_BASE_URL", "\"\"")
-    buildConfigField("String", "SIMET_API_KEY", "\"\"")
+    buildConfigField("String", "SIMET_API_BASE_URL", "\"${simetApiBaseUrl.replace("\"", "")}\"")
+    buildConfigField("String", "SIMET_API_KEY", "\"${simetApiKey.replace("\"", "")}\"")
   }
 
   signingConfigs {
     create("release") {
-      val customKeystorePath = System.getenv("KEYSTORE_PATH")
-      val uploadKeyFile = if (customKeystorePath != null) file(customKeystorePath) else file("${rootDir}/my-upload-key.jks")
-      if (uploadKeyFile.exists()) {
-        storeFile = uploadKeyFile
+      // Chave de UPLOAD do Google Play. Ordem: keystore.properties (raiz, fora do git) → variáveis de ambiente
+      // (KEYSTORE_PATH, STORE_PASSWORD, KEY_ALIAS, KEY_PASSWORD) → sem assinatura.
+      // O release NUNCA é assinado com a chave de debug (APK assinado com debug é rejeitado pela Play Console).
+      val propsFile = rootProject.file("keystore.properties")
+      if (propsFile.exists()) {
+        val props = Properties().apply { propsFile.inputStream().use { stream -> load(stream) } }
+        storeFile = file(props.getProperty("storeFile"))
+        storePassword = props.getProperty("storePassword")
+        keyAlias = props.getProperty("keyAlias", "upload")
+        keyPassword = props.getProperty("keyPassword")
+      } else if (System.getenv("KEYSTORE_PATH") != null && file(System.getenv("KEYSTORE_PATH")).exists()) {
+        storeFile = file(System.getenv("KEYSTORE_PATH"))
         storePassword = System.getenv("STORE_PASSWORD")
-        keyAlias = "upload"
+        keyAlias = System.getenv("KEY_ALIAS") ?: "upload"
         keyPassword = System.getenv("KEY_PASSWORD")
       } else {
-        // Fallback for AI Studio build environment and unsigned/debug bundles for Play Console testing
+        logger.warn("AVISO: keystore.properties/KEYSTORE_PATH não encontrado. O release sairá SEM assinatura (veja README.md).")
+      }
+    }
+    if (file("${rootDir}/debug.keystore").exists()) {
+      create("debugConfig") {
         storeFile = file("${rootDir}/debug.keystore")
         storePassword = "android"
         keyAlias = "androiddebugkey"
         keyPassword = "android"
       }
     }
-    create("debugConfig") {
-      storeFile = file("${rootDir}/debug.keystore")
-      storePassword = "android"
-      keyAlias = "androiddebugkey"
-      keyPassword = "android"
-    }
   }
 
   buildTypes {
     release {
       isCrunchPngs = false
-      isMinifyEnabled = false
+      isDebuggable = false
+      // R8: encolhe/ofusca o código e remove recursos não usados (regras em proguard-rules.pro).
+      // O mapping.txt vai dentro do AAB (a Play Console usa para desofuscar os relatórios de falha).
+      isMinifyEnabled = true
+      isShrinkResources = true
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-      signingConfig = signingConfigs.getByName("release")
+      signingConfig = signingConfigs.getByName("release").takeIf { it.storeFile?.exists() == true }
     }
-    debug { signingConfig = signingConfigs.getByName("debugConfig") }
+    // Sem debug.keystore na raiz, usa a chave de debug padrão do Android Gradle Plugin (~/.android/debug.keystore)
+    debug { signingConfigs.findByName("debugConfig")?.let { signingConfig = it } }
   }
   compileOptions {
     sourceCompatibility = JavaVersion.VERSION_11
@@ -81,6 +112,9 @@ secrets {
   propertiesFileName = ".env"
   defaultPropertiesFileName = ".env.example"
   ignoreList.add("FIREBASE_APPCHECK_DEBUG_TOKEN")
+  // lidos manualmente em simetSetting() (aceitam também -P e variável de ambiente)
+  ignoreList.add("SIMET_API_BASE_URL")
+  ignoreList.add("SIMET_API_KEY")
 }
 
 googleServices { missingGoogleServicesStrategy = MissingGoogleServicesStrategy.WARN }
@@ -96,7 +130,9 @@ configurations.all {
 // This makes it easy to add them back in the future if needed.
 dependencies {
   implementation(platform(libs.androidx.compose.bom))
-  implementation(platform(libs.firebase.bom))
+  // Firebase removido do build de release: nenhum código do app usa Firebase e não há google-services.json.
+  // Reative junto com o google-services.json se for usar Firebase AI Logic / App Check (ver README).
+  // implementation(platform(libs.firebase.bom))
   // implementation(libs.accompanist.permissions)
   implementation(libs.androidx.activity.compose)
   implementation(libs.androidx.fragment.ktx)
@@ -111,16 +147,17 @@ dependencies {
   implementation(libs.androidx.compose.ui.graphics)
   implementation(libs.androidx.compose.ui.tooling.preview)
   implementation(libs.androidx.core.ktx)
-  implementation(libs.androidx.datastore.preferences)
+  implementation(libs.androidx.datastore.preferences) // chaves de API cifradas (Keystore AES/GCM)
   implementation(libs.androidx.lifecycle.runtime.compose)
   implementation(libs.androidx.lifecycle.runtime.ktx)
   implementation(libs.androidx.lifecycle.viewmodel.compose)
   // implementation(libs.androidx.navigation.compose)
   implementation(libs.androidx.room.ktx)
   implementation(libs.androidx.room.runtime)
+  implementation(libs.androidx.work.runtime.ktx) // v5.1: verificação periódica de alertas (opcional)
   // implementation(libs.coil.compose)
   implementation(libs.converter.moshi)
-  implementation(libs.firebase.ai)
+  // implementation(libs.firebase.ai)
   // Uncomment to use Firestore:
   // implementation(libs.firebase.firestore)
 
@@ -130,8 +167,8 @@ dependencies {
   // implementation(libs.androidx.credentials)
   // implementation(libs.androidx.credentials.play.services)
   // implementation(libs.googleid)
-  implementation(libs.firebase.appcheck.recaptcha)
-  implementation(libs.firebase.appcheck.debug)
+  // implementation(libs.firebase.appcheck.recaptcha)
+  // debugImplementation(libs.firebase.appcheck.debug) // provedor de debug do App Check só no build debug
   implementation(libs.kotlinx.coroutines.android)
   implementation(libs.kotlinx.coroutines.core)
   implementation(libs.logging.interceptor)
@@ -157,4 +194,9 @@ dependencies {
   debugImplementation(libs.androidx.compose.ui.tooling)
   "ksp"(libs.androidx.room.compiler)
   "ksp"(libs.moshi.kotlin.codegen)
+}
+
+// Esquema do Room exportado para versionar migrações (app/schemas/)
+ksp {
+  arg("room.schemaLocation", "$projectDir/schemas")
 }

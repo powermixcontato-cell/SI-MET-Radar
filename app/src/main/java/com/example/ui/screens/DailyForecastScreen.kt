@@ -46,8 +46,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.local.entity.DailyForecastEntity
-import com.example.ui.components.AgroClimaSection
-import com.example.ui.components.AgroTempHumidityVariationChart
 import com.example.ui.components.Ciiagro24hRechartsLineChart
 import com.example.ui.components.DynamicHourlyChart
 import com.example.ui.components.OfflineStatusBar
@@ -266,15 +264,6 @@ fun DailyForecastScreen(
             )
         }
 
-        // 7-Day Humidity & Temperature Agro Variation Chart
-        item {
-            AgroTempHumidityVariationChart(
-                dailyForecasts = dailyList,
-                cityName = current.name,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
-            )
-        }
-
         // Radar Map Shortcut Card for Current Region
         item {
             Card(
@@ -448,9 +437,8 @@ fun DailyForecastScreen(
             }
         }
 
-        // AgroClima SP - Clima para a Agricultura e Produtores Rurais
+        // v5.1: a seção agro (umidade do solo/ATR estimados) saiu daqui; cana e citros com dados reais ficam na aba Agro.
         item {
-            AgroClimaSection(station = current)
             Spacer(modifier = Modifier.height(48.dp))
         }
     }

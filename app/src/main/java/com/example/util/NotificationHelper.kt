@@ -53,7 +53,10 @@ object NotificationHelper {
         title: String,
         message: String,
         regionName: String,
-        isSevere: Boolean = false
+        isSevere: Boolean = false,
+        /** Fonte exibida no rodapé da notificação (v5.1: antes era fixa "Radares IPMet"). */
+        source: String = "Radares Meteorológicos IPMet UNESP (Bauru & Pres. Prudente)",
+        emoji: String = "⛈️"
     ) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             val permission = ContextCompat.checkSelfPermission(context, android.Manifest.permission.POST_NOTIFICATIONS)
@@ -76,9 +79,9 @@ object NotificationHelper {
 
         val notification = NotificationCompat.Builder(context, channelId)
             .setSmallIcon(android.R.drawable.ic_dialog_alert)
-            .setContentTitle("⛈️ $title")
+            .setContentTitle("$emoji $title")
             .setContentText(message)
-            .setStyle(NotificationCompat.BigTextStyle().bigText("[$regionName] $message\nFonte: Radares Meteorológicos IPMet UNESP (Bauru & Pres. Prudente)"))
+            .setStyle(NotificationCompat.BigTextStyle().bigText("[$regionName] $message\nFonte: $source"))
             .setPriority(if (isSevere) NotificationCompat.PRIORITY_HIGH else NotificationCompat.PRIORITY_DEFAULT)
             .setContentIntent(pendingIntent)
             .setAutoCancel(true)

@@ -192,10 +192,14 @@ class WeatherRepository(
      * (até [MAX_PARALLEL_FETCHES] por vez). Antes eram 31 chamadas em sequência e a cidade aberta
      * podia ficar sem série (aba Cana & Citros vazia) por até ~1 min.
      */
-    suspend fun refreshAllHourlyAndDailyLive(priorityStationId: String? = null): Boolean = withContext(Dispatchers.IO) {
+    suspend fun refreshAllHourlyAndDailyLive(
+        priorityStationId: String? = null,
+        /** v5.1: limita às estações de um estado (SP/PR/RS). null = todas. */
+        stateFilter: com.example.domain.BrState? = null
+    ): Boolean = withContext(Dispatchers.IO) {
         val prefs = dao.getUserPreferencesSync()
         if (prefs?.isOfflineModeForced == true) return@withContext false
-        val stations = dao.getAllStationsSync()
+        val stations = dao.getAllStationsSync().filter { stateFilter == null || com.example.domain.BrState.ofStationId(it.id) == stateFilter }
         var failures = 0
         val first = stations.firstOrNull { it.id == priorityStationId }
         if (first != null) {
@@ -248,6 +252,10 @@ class WeatherRepository(
         if (dao.countStations() == 0) {
             dao.insertStations(getInitialSpStations().map { it.asPlaceholder() })
         }
+        // v5.1: cidades do PR e RS (só as que ainda não existem; nunca sobrescreve dados reais já salvos)
+        val existingIds = dao.getAllStationsSync().map { it.id }.toSet()
+        val missing = RegionalStations.paranaAndRs.filter { it.id !in existingIds }
+        if (missing.isNotEmpty()) dao.insertStations(missing)
 
         // Migra chaves salvas em texto puro no Room para o armazenamento cifrado e apaga do Room
         val prefsNow = dao.getUserPreferencesSync()

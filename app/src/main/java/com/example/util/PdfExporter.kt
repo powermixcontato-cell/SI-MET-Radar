@@ -734,7 +734,7 @@ object PdfExporter {
         val intent = Intent(Intent.ACTION_SEND).apply {
             type = "application/pdf"
             putExtra(Intent.EXTRA_STREAM, uri)
-            putExtra(Intent.EXTRA_SUBJECT, "Relatório Meteorológico IPMet SP - ${pdfFile.name}")
+            putExtra(Intent.EXTRA_SUBJECT, "Relatório SI-MET Radar - ${pdfFile.name}")
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
         val chooser = Intent.createChooser(intent, "Compartilhar Relatório PDF")
