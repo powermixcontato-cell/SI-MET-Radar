@@ -65,6 +65,11 @@ fun WindyWebViewCard(
     var tab by rememberSaveable { mutableStateOf(0) }          // 0 = satélite, 1 = Windy
     var windyOverlay by rememberSaveable { mutableStateOf("wind") } // wind | radar
     var expanded by rememberSaveable { mutableStateOf(false) }
+    // "Minha localização" no Windy: recentra o embed na posição do aparelho (zera ao trocar de estado/cidade)
+    var windyCenter by rememberSaveable(state, focusLat, focusLon) { mutableStateOf<Pair<Double, Double>?>(null) }
+    val windyLat = windyCenter?.first ?: focusLat
+    val windyLon = windyCenter?.second ?: focusLon
+    val onWindyFix: (MyLocationFix) -> Unit = { windyCenter = it.lat to it.lon }
 
     SimetCard(modifier = modifier.testTag("card_windy_webview")) {
         SimetCardHeader(
@@ -90,7 +95,7 @@ fun WindyWebViewCard(
                 interactive = false, modifier = mapModifier, onTap = { expanded = true }
             )
         } else {
-            WindyEmbed(lat = focusLat, lon = focusLon, overlay = windyOverlay, interactive = false, modifier = mapModifier, onTap = { expanded = true })
+            WindyEmbed(lat = windyLat, lon = windyLon, overlay = windyOverlay, interactive = false, modifier = mapModifier, onTap = { expanded = true }, onMyLocation = onWindyFix)
         }
     }
 
@@ -108,7 +113,7 @@ fun WindyWebViewCard(
                 subtitle = "windy.com (embed público)",
                 onDismiss = { expanded = false }
             ) {
-                WindyEmbed(lat = focusLat, lon = focusLon, overlay = windyOverlay, interactive = true, modifier = Modifier.fillMaxSize())
+                WindyEmbed(lat = windyLat, lon = windyLon, overlay = windyOverlay, interactive = true, modifier = Modifier.fillMaxSize(), onMyLocation = onWindyFix)
             }
         }
     }
@@ -131,9 +136,14 @@ fun WindyEmbed(
     overlay: String,
     interactive: Boolean,
     modifier: Modifier = Modifier,
-    onTap: (() -> Unit)? = null
+    onTap: (() -> Unit)? = null,
+    /** Se definido, mostra o botão "Minha localização"; o chamador recentra (lat/lon) e o embed recarrega. */
+    onMyLocation: ((MyLocationFix) -> Unit)? = null
 ) {
     val url = remember(lat, lon, overlay) { windyEmbedUrl(lat, lon, overlay) }
+    // URL pedida por último (o Windy reescreve a própria URL; comparar com v.url recarregaria a página à toa)
+    val requestedUrl = remember { arrayOf("") }
+    val locator = rememberMyLocationRequester { fix -> onMyLocation?.invoke(fix) }
     var loading by remember { mutableStateOf(true) }
     var failed by remember { mutableStateOf(false) }
     var webView by remember { mutableStateOf<WebView?>(null) }
@@ -163,16 +173,20 @@ fun WindyEmbed(
                             if (request?.isForMainFrame == true) { loading = false; failed = true }
                         }
                     }
+                    requestedUrl[0] = url
                     loadUrl(url)
                     webView = this
                 }
             },
-            update = { v -> if (v.url != url && !failed) { loading = true; v.loadUrl(url) } },
-            onRelease = { v -> v.stopLoading(); v.destroy() },
+            update = { v -> if (requestedUrl[0] != url) { requestedUrl[0] = url; failed = false; loading = true; v.loadUrl(url) } },
+            onRelease = { v -> v.stopLoading(); v.destroy(); if (webView === v) webView = null },
             modifier = Modifier.fillMaxSize()
         )
         if (!interactive) {
             Box(Modifier.fillMaxSize().pointerInput(onTap) { detectTapGestures(onTap = { onTap?.invoke() }) })
+        }
+        if (onMyLocation != null && !failed) {
+            MyLocationButton(locator, Modifier.align(Alignment.BottomEnd).padding(MyLocationButtonPadding))
         }
         if (loading && !failed) CircularProgressIndicator(Modifier.align(Alignment.Center).size(28.dp), strokeWidth = 3.dp, color = Color(0xFF38BDF8))
         if (failed) {

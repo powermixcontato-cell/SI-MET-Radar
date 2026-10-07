@@ -88,6 +88,8 @@ fun SimetLeafletMap(
     interactive: Boolean,
     modifier: Modifier = Modifier,
     satelliteBase: Boolean = false,
+    /** Botão "Minha localização" (canto inferior direito). Desligado na trajetória, cujo painel ocupa a base. */
+    showMyLocation: Boolean = mode != SimetMapMode.TRAJECTORY,
     onTap: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
@@ -96,6 +98,8 @@ fun SimetLeafletMap(
     var loading by remember { mutableStateOf(true) }
     var failed by remember { mutableStateOf(false) }
     var loadedCenter by remember { mutableStateOf<Triple<Double, Double, Int>?>(null) }
+    var myFix by remember { mutableStateOf<MyLocationFix?>(null) }
+    val locator = rememberMyLocationRequester { myFix = it }
 
     fun load(v: WebView) {
         failed = false; loading = true
@@ -116,6 +120,14 @@ fun SimetLeafletMap(
             v.evaluateJavascript(String.format(Locale.US, "window.simet&&window.simet.setView(%.4f,%.4f,%d,%s)", lat, lon, zoom, bbox), null)
             loadedCenter = Triple(lat, lon, zoom)
         }
+    }
+
+    // "Minha localização": centraliza e desenha o ponto azul (reaplicado se a página recarregar)
+    LaunchedEffect(myFix, loading, webView) {
+        val v = webView ?: return@LaunchedEffect
+        val f = myFix ?: return@LaunchedEffect
+        if (loading) return@LaunchedEffect
+        v.evaluateJavascript(String.format(Locale.US, "window.simet&&window.simet.locate(%.6f,%.6f,%.0f)", f.lat, f.lon, f.accuracyM), null)
     }
 
     DisposableEffect(lifecycleOwner, webView) {
@@ -178,6 +190,10 @@ fun SimetLeafletMap(
         if (!interactive) {
             // Camada de toque: impede que o WebView capture gestos dentro da lista rolável
             Box(Modifier.fillMaxSize().pointerInput(onTap) { detectTapGestures(onTap = { onTap?.invoke() }) })
+        }
+
+        if (showMyLocation && !failed) {
+            MyLocationButton(locator, Modifier.align(Alignment.BottomEnd).padding(MyLocationButtonPadding))
         }
 
         if (loading && !failed) {

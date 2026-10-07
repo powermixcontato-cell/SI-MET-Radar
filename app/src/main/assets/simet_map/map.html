@@ -319,12 +319,23 @@ if (MODE === 'rain') {
   loadWind();
 }
 
+var meLayer = null;
 window.simet = {
   setView: function(lat, lon, z, bbox){
     if (bbox) BBOX = bbox;
     map.setView([lat, lon], z, {animate: false});
     if (MODE === 'satellite') loadWind();
     if (modelFrames.length) { modelFrames = []; if (showModel) loadModel(function(){ buildSeq(); show(seq.length - 1); }); }
+  },
+  // "Minha localização": ponto azul + círculo de precisão, centralizado na posição do aparelho
+  locate: function(lat, lon, acc){
+    var ll = [lat, lon];
+    if (!meLayer) meLayer = L.layerGroup().addTo(map);
+    meLayer.clearLayers();
+    if (acc && acc > 0 && acc < 20000) L.circle(ll, {radius: acc, stroke: false, fillColor: '#3B82F6', fillOpacity: 0.15, interactive: false}).addTo(meLayer);
+    L.circleMarker(ll, {radius: 7, color: '#FFFFFF', weight: 2, fillColor: '#2563EB', fillOpacity: 1, interactive: false}).addTo(meLayer);
+    map.setView(ll, Math.max(map.getZoom(), 8), {animate: false});
+    if (MODE === 'satellite') { BBOX = []; loadWind(); }
   },
   pause: function(){ setPlaying(false); },
   resume: function(){ if (MODE === 'trajectory') setPlaying(true); }
