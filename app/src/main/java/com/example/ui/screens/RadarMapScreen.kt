@@ -175,6 +175,8 @@ fun RadarMapScreen(
                 )
             }
         }
+        // 3b) Chuva no seu local (GPS ou cidade buscada)
+        item(key = "local_rain") { com.example.ui.components.LocalRainCard(modifier = Modifier.padding(horizontal = 16.dp)) }
         // 4) Alagamentos/Enchentes
         item {
             val h = hazards[state]
