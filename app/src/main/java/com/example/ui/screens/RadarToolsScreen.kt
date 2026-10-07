@@ -1,5 +1,7 @@
 package com.example.ui.screens
 
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+
 import android.Manifest
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -90,31 +92,31 @@ fun RadarToolsScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    val stations by viewModel.allStations.collectAsState()
-    val currentStation by viewModel.currentStation.collectAsState()
-    val currentCiiagro by viewModel.currentCiiagroRecord.collectAsState()
-    val activeCenter by viewModel.activeRadarCenter.collectAsState()
-    val timeStep by viewModel.radarTimeStep.collectAsState()
-    val isPlaying by viewModel.isRadarPlaying.collectAsState()
-    val isRefreshing by viewModel.isRefreshing.collectAsState()
-    val alerts by viewModel.allAlerts.collectAsState()
-    val prefs by viewModel.userPreferences.collectAsState()
+    val stations by viewModel.allStations.collectAsStateWithLifecycle()
+    val currentStation by viewModel.currentStation.collectAsStateWithLifecycle()
+    val currentCiiagro by viewModel.currentCiiagroRecord.collectAsStateWithLifecycle()
+    val activeCenter by viewModel.activeRadarCenter.collectAsStateWithLifecycle()
+    val timeStep by viewModel.radarTimeStep.collectAsStateWithLifecycle()
+    val isPlaying by viewModel.isRadarPlaying.collectAsStateWithLifecycle()
+    val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
+    val alerts by viewModel.allAlerts.collectAsStateWithLifecycle()
+    val prefs by viewModel.userPreferences.collectAsStateWithLifecycle()
 
-    val searchQuery by viewModel.searchQuery.collectAsState()
-    val searchResults by viewModel.searchResults.collectAsState()
-    val showTrajectories by viewModel.showTrajectories.collectAsState()
-    val isExpandedMapOpen by viewModel.isExpandedMapOpen.collectAsState()
-    val selectedStormCell by viewModel.selectedStormCell.collectAsState()
-    val selectedHourIndex by viewModel.selectedHourIndex.collectAsState()
-    val hourlyForecasts by viewModel.hourlyForecasts.collectAsState()
-    val dailyForecasts by viewModel.dailyForecasts.collectAsState()
-    val userCoordinates by viewModel.userCoordinates.collectAsState()
-    val mapsRainPrecisionState by viewModel.mapsRainPrecisionState.collectAsState()
-    val liveTimeMillis by viewModel.liveCurrentTime.collectAsState()
-    val mapFormat by viewModel.mapFormat.collectAsState()
-    val mapBackgroundTheme by viewModel.mapBackgroundTheme.collectAsState()
-    val isWindyWebViewEnabled by viewModel.isWindyWebViewEnabled.collectAsState()
-    val regionalWeatherNews by viewModel.regionalWeatherNews.collectAsState()
+    val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
+    val searchResults by viewModel.searchResults.collectAsStateWithLifecycle()
+    val showTrajectories by viewModel.showTrajectories.collectAsStateWithLifecycle()
+    val isExpandedMapOpen by viewModel.isExpandedMapOpen.collectAsStateWithLifecycle()
+    val selectedStormCell by viewModel.selectedStormCell.collectAsStateWithLifecycle()
+    val selectedHourIndex by viewModel.selectedHourIndex.collectAsStateWithLifecycle()
+    val hourlyForecasts by viewModel.hourlyForecasts.collectAsStateWithLifecycle()
+    val dailyForecasts by viewModel.dailyForecasts.collectAsStateWithLifecycle()
+    val userCoordinates by viewModel.userCoordinates.collectAsStateWithLifecycle()
+    val mapsRainPrecisionState by viewModel.mapsRainPrecisionState.collectAsStateWithLifecycle()
+    val liveTimeMillis by viewModel.liveCurrentTime.collectAsStateWithLifecycle()
+    val mapFormat by viewModel.mapFormat.collectAsStateWithLifecycle()
+    val mapBackgroundTheme by viewModel.mapBackgroundTheme.collectAsStateWithLifecycle()
+    val isWindyWebViewEnabled by viewModel.isWindyWebViewEnabled.collectAsStateWithLifecycle()
+    val regionalWeatherNews by viewModel.regionalWeatherNews.collectAsStateWithLifecycle()
 
     var showPdfExportDialog by remember { mutableStateOf(false) }
 

@@ -1,5 +1,7 @@
 package com.example.ui.screens
 
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -72,12 +74,12 @@ fun DailyForecastScreen(
     onNavigateToRadar: () -> Unit = {}
 ) {
     val context = LocalContext.current
-    val station by viewModel.currentStation.collectAsState()
-    val currentCiiagro by viewModel.currentCiiagroRecord.collectAsState()
-    val hourlyList by viewModel.hourlyForecasts.collectAsState()
-    val dailyList by viewModel.dailyForecasts.collectAsState()
-    val prefs by viewModel.userPreferences.collectAsState()
-    val isRefreshing by viewModel.isRefreshing.collectAsState()
+    val station by viewModel.currentStation.collectAsStateWithLifecycle()
+    val currentCiiagro by viewModel.currentCiiagroRecord.collectAsStateWithLifecycle()
+    val hourlyList by viewModel.hourlyForecasts.collectAsStateWithLifecycle()
+    val dailyList by viewModel.dailyForecasts.collectAsStateWithLifecycle()
+    val prefs by viewModel.userPreferences.collectAsStateWithLifecycle()
+    val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
     var selectedModel by remember { mutableStateOf("Consenso Multimodelo") }
     var forecastPeriodDays by remember { mutableIntStateOf(7) }
 

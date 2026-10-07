@@ -1,5 +1,7 @@
 package com.example.ui.screens
 
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -63,7 +65,7 @@ fun SettingsAndApiScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    val prefs by viewModel.userPreferences.collectAsState()
+    val prefs by viewModel.userPreferences.collectAsStateWithLifecycle()
 
     var openWeatherKeyInput by remember(prefs.openWeatherApiKey) { mutableStateOf(prefs.openWeatherApiKey) }
     var weatherbitKeyInput by remember(prefs.weatherbitApiKey) { mutableStateOf(prefs.weatherbitApiKey) }

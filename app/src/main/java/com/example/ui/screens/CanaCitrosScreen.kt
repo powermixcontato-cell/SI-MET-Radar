@@ -1,5 +1,7 @@
 package com.example.ui.screens
 
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -68,13 +70,13 @@ private val CitrusOrange = Color(0xFFF59E0B)
 
 @Composable
 fun CanaCitrosScreen(viewModel: WeatherViewModel) {
-    val station by viewModel.currentStation.collectAsState()
-    val series by viewModel.currentAgroSeries.collectAsState()
-    val alerts by viewModel.allAlerts.collectAsState()
-    val stations by viewModel.allStations.collectAsState()
-    val refreshing by viewModel.isRefreshing.collectAsState()
-    val loadState by viewModel.currentAgroLoadState.collectAsState()
-    val selectedId by viewModel.selectedStationId.collectAsState()
+    val station by viewModel.currentStation.collectAsStateWithLifecycle()
+    val series by viewModel.currentAgroSeries.collectAsStateWithLifecycle()
+    val alerts by viewModel.allAlerts.collectAsStateWithLifecycle()
+    val stations by viewModel.allStations.collectAsStateWithLifecycle()
+    val refreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
+    val loadState by viewModel.currentAgroLoadState.collectAsStateWithLifecycle()
+    val selectedId by viewModel.selectedStationId.collectAsStateWithLifecycle()
     // Carrega a série ao abrir a aba e ao trocar de cidade (antes só aparecia após "Atualizar")
     LaunchedEffect(selectedId) { viewModel.ensureAgroSeriesLoaded() }
     CanaCitrosContent(

@@ -1,5 +1,7 @@
 package com.example.ui.screens
 
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -47,7 +49,7 @@ fun MainAppScaffold(
     var currentTab by rememberSaveable { mutableIntStateOf(0) }
     var othersRoute by rememberSaveable { mutableStateOf<OthersRoute?>(null) }
     // v5.1: selo com os alertas (3 categorias) do estado selecionado
-    val hazardAlerts by viewModel.hazardAlerts.collectAsState()
+    val hazardAlerts by viewModel.hazardAlerts.collectAsStateWithLifecycle()
 
     Scaffold(
         modifier = modifier.fillMaxSize(),

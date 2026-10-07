@@ -1,10 +1,14 @@
 package com.example
 
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import com.example.data.local.AppDatabase
@@ -53,8 +57,13 @@ class MainActivity : ComponentActivity() {
         // Initialize system notification channels for weather and radar alerts
         NotificationHelper.initNotificationChannels(this)
 
+        // Pré-carrega o HTML do mapa (Leaflet ~160 KB dos assets) fora da thread principal
+        lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try { com.example.ui.components.SimetMapHtml.get(applicationContext) } catch (_: Exception) { }
+        }
+
         setContent {
-            val userPrefs by viewModel.userPreferences.collectAsState()
+            val userPrefs by viewModel.userPreferences.collectAsStateWithLifecycle()
 
             IpmetWeatherTheme(
                 themeKey = userPrefs.selectedThemeKey,

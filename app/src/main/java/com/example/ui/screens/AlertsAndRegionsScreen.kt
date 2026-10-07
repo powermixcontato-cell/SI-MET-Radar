@@ -1,5 +1,7 @@
 package com.example.ui.screens
 
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
@@ -83,9 +85,9 @@ fun AlertsAndRegionsScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    val alerts by viewModel.allAlerts.collectAsState()
-    val subscriptions by viewModel.regionSubscriptions.collectAsState()
-    val allStations by viewModel.allStations.collectAsState()
+    val alerts by viewModel.allAlerts.collectAsStateWithLifecycle()
+    val subscriptions by viewModel.regionSubscriptions.collectAsStateWithLifecycle()
+    val allStations by viewModel.allStations.collectAsStateWithLifecycle()
 
     var selectedFilterIndex by remember { mutableIntStateOf(0) } // 0: Todos, 1: Severos (Vermelho), 2: Alertas Laranja
 

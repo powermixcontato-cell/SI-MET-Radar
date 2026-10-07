@@ -125,6 +125,9 @@ class WeatherViewModel(
                 // Cache de 30 min só para uma consulta completa (com falha, tenta de novo na próxima chamada)
                 if (!force && prev != null && !prev.loading && System.currentTimeMillis() - prev.updatedAt < 30 * 60_000L &&
                     prev.glofasError == null && prev.forecastError == null) return@withLock
+                // Depois de uma falha, espera 2 min antes de tentar de novo (troca de aba não martela a API)
+                if (!force && prev != null && !prev.loading && (prev.glofasError != null || prev.forecastError != null) &&
+                    System.currentTimeMillis() - prev.updatedAt < 2 * 60_000L) return@withLock
                 if (repository.userPreferences.first()?.isOfflineModeForced == true) return@withLock
                 _hazards.value = _hazards.value + (state to (prev ?: HazardsUiState()).copy(loading = true))
                 val brt = java.util.TimeZone.getTimeZone("America/Sao_Paulo")
@@ -312,9 +315,17 @@ class WeatherViewModel(
     private val _isAppInForeground = MutableStateFlow(true)
     val isAppInForeground: StateFlow<Boolean> = _isAppInForeground.asStateFlow()
 
+    /** Suspende enquanto o app estiver em segundo plano (onStop). */
+    private suspend fun awaitForeground() { _isAppInForeground.first { it } }
+
+    // A abertura do app já atualiza no init; ao voltar ao primeiro plano só atualiza se passou 10 min
+    // (antes: rede a cada onStart, inclusive ao voltar do compartilhamento ou girar a tela).
+    private var lastForegroundRefreshAt = System.currentTimeMillis()
+
     fun setAppInForeground(inForeground: Boolean) {
         _isAppInForeground.value = inForeground
-        if (inForeground) {
+        if (inForeground && System.currentTimeMillis() - lastForegroundRefreshAt >= 10 * 60_000L) {
+            lastForegroundRefreshAt = System.currentTimeMillis()
             refreshActiveStation()
         }
     }
@@ -549,6 +560,7 @@ class WeatherViewModel(
         // v5.1: avisos oficiais do INMET (antes nunca eram buscados) e rios/indicadores, a cada 30 min
         viewModelScope.launch {
             while (true) {
+                awaitForeground() // em segundo plano quem verifica é o AlertsWorker (opcional)
                 repository.refreshInmetAlerts()
                 refreshHazards(_selectedState.value)
                 kotlinx.coroutines.delay(30 * 60_000L)
@@ -557,6 +569,7 @@ class WeatherViewModel(
         viewModelScope.launch {
             var lastHour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
             while (true) {
+                awaitForeground() // relógio e atualização horária pausam com o app em segundo plano
                 _liveCurrentTime.value = System.currentTimeMillis()
                 val currentHour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
                 if (currentHour != lastHour) {
@@ -569,6 +582,7 @@ class WeatherViewModel(
         viewModelScope.launch {
             while (true) {
                 kotlinx.coroutines.delay(1800L)
+                awaitForeground()
                 if (_isRadarPlaying.value) {
                     val nextStep = (_radarTimeStep.value + 1) % 7
                     _radarTimeStep.value = nextStep
@@ -698,6 +712,12 @@ class WeatherViewModel(
     }
 
     private fun fallbackLocationManager(context: Context, onResult: (String, Boolean) -> Unit) {
+        val granted = ContextCompat.checkSelfPermission(context, android.Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+            ContextCompat.checkSelfPermission(context, android.Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        if (!granted) {
+            onResult("Permissão de GPS necessária para detectar sua cidade automaticamente", false)
+            return
+        }
         try {
             val locationManager = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
             if (locationManager != null) {

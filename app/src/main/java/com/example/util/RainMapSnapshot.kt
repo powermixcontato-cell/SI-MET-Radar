@@ -59,11 +59,11 @@ object RainMapSnapshot {
         for (tx in tx0..tx1) for (ty in ty0..ty1) {
             val dx = (tx - tx0) * 256f; val dy = (ty - ty0) * 256f
             get("https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/$Z/$ty/$tx")
-                ?.let { BitmapFactory.decodeByteArray(it, 0, it.size) }?.let { c.drawBitmap(it, dx, dy, null) }
+                ?.let { BitmapFactory.decodeByteArray(it, 0, it.size) }?.let { c.drawBitmap(it, dx, dy, null); it.recycle() }
             get("$host$path/256/$Z/$tx/$ty/2/1_0.png")
-                ?.let { BitmapFactory.decodeByteArray(it, 0, it.size) }?.let { c.drawBitmap(it, dx, dy, null); radarTiles++ }
+                ?.let { BitmapFactory.decodeByteArray(it, 0, it.size) }?.let { c.drawBitmap(it, dx, dy, null); it.recycle(); radarTiles++ }
             get("https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/$Z/$ty/$tx")
-                ?.let { BitmapFactory.decodeByteArray(it, 0, it.size) }?.let { c.drawBitmap(it, dx, dy, null) }
+                ?.let { BitmapFactory.decodeByteArray(it, 0, it.size) }?.let { c.drawBitmap(it, dx, dy, null); it.recycle() }
         }
         if (radarTiles == 0) return null
         val crop = Rect((x0 - tx0 * 256).toInt(), (y0 - ty0 * 256).toInt(), (x1 - tx0 * 256).toInt(), (y1 - ty0 * 256).toInt())

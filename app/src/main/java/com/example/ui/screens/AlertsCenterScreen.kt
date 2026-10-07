@@ -1,5 +1,7 @@
 package com.example.ui.screens
 
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+
 import android.Manifest
 import android.content.Intent
 import android.net.Uri
@@ -78,12 +80,12 @@ fun AlertsCenterScreen(
     onOpenFloods: () -> Unit = {}
 ) {
     val context = LocalContext.current
-    val state by viewModel.selectedState.collectAsState()
-    val alerts by viewModel.hazardAlerts.collectAsState()
-    val hazards by viewModel.hazardsByState.collectAsState()
-    val inmetError by viewModel.inmetAlertsError.collectAsState()
-    val inmetUpdated by viewModel.inmetAlertsUpdatedAt.collectAsState()
-    val notifyOn by viewModel.alertNotificationsEnabled.collectAsState()
+    val state by viewModel.selectedState.collectAsStateWithLifecycle()
+    val alerts by viewModel.hazardAlerts.collectAsStateWithLifecycle()
+    val hazards by viewModel.hazardsByState.collectAsStateWithLifecycle()
+    val inmetError by viewModel.inmetAlertsError.collectAsStateWithLifecycle()
+    val inmetUpdated by viewModel.inmetAlertsUpdatedAt.collectAsStateWithLifecycle()
+    val notifyOn by viewModel.alertNotificationsEnabled.collectAsStateWithLifecycle()
     var filter by rememberSaveable { mutableStateOf<String?>(null) }
 
     LaunchedEffect(state) { viewModel.refreshHazards(state) }

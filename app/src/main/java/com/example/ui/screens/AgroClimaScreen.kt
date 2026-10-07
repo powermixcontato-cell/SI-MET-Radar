@@ -1,5 +1,7 @@
 package com.example.ui.screens
 
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+
 import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
@@ -29,14 +31,14 @@ fun AgroClimaScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    val state by viewModel.selectedState.collectAsState()
-    val station by viewModel.currentStation.collectAsState()
-    val series by viewModel.currentAgroSeries.collectAsState()
-    val alerts by viewModel.allAlerts.collectAsState()
-    val stations by viewModel.stationsOfSelectedState.collectAsState()
-    val refreshing by viewModel.isRefreshing.collectAsState()
-    val loadState by viewModel.currentAgroLoadState.collectAsState()
-    val selectedId by viewModel.selectedStationId.collectAsState()
+    val state by viewModel.selectedState.collectAsStateWithLifecycle()
+    val station by viewModel.currentStation.collectAsStateWithLifecycle()
+    val series by viewModel.currentAgroSeries.collectAsStateWithLifecycle()
+    val alerts by viewModel.allAlerts.collectAsStateWithLifecycle()
+    val stations by viewModel.stationsOfSelectedState.collectAsStateWithLifecycle()
+    val refreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
+    val loadState by viewModel.currentAgroLoadState.collectAsStateWithLifecycle()
+    val selectedId by viewModel.selectedStationId.collectAsStateWithLifecycle()
     LaunchedEffect(selectedId) { viewModel.ensureAgroSeriesLoaded() }
 
     val stateAlerts = remember(alerts, state) {

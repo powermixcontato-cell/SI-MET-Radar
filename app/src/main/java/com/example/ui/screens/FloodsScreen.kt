@@ -1,5 +1,7 @@
 package com.example.ui.screens
 
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.Canvas
@@ -106,8 +108,8 @@ object FloodLinks {
 @Composable
 fun FloodsScreen(viewModel: WeatherViewModel, modifier: Modifier = Modifier) {
     val context = LocalContext.current
-    val state by viewModel.selectedState.collectAsState()
-    val hazards by viewModel.hazardsByState.collectAsState()
+    val state by viewModel.selectedState.collectAsStateWithLifecycle()
+    val hazards by viewModel.hazardsByState.collectAsStateWithLifecycle()
     val h = hazards[state]
     LaunchedEffect(state) { viewModel.refreshHazards(state) }
 

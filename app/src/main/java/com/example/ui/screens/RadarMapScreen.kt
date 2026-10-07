@@ -1,5 +1,7 @@
 package com.example.ui.screens
 
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -67,14 +69,14 @@ fun RadarMapScreen(
     onOpenOthers: () -> Unit = {}
 ) {
     val context = LocalContext.current
-    val state by viewModel.selectedState.collectAsState()
-    val stations by viewModel.stationsOfSelectedState.collectAsState()
-    val currentStation by viewModel.currentStation.collectAsState()
-    val dailyForecasts by viewModel.dailyForecasts.collectAsState()
-    val prefs by viewModel.userPreferences.collectAsState()
-    val isRefreshing by viewModel.isRefreshing.collectAsState()
-    val alerts by viewModel.hazardAlerts.collectAsState()
-    val hazards by viewModel.hazardsByState.collectAsState()
+    val state by viewModel.selectedState.collectAsStateWithLifecycle()
+    val stations by viewModel.stationsOfSelectedState.collectAsStateWithLifecycle()
+    val currentStation by viewModel.currentStation.collectAsStateWithLifecycle()
+    val dailyForecasts by viewModel.dailyForecasts.collectAsStateWithLifecycle()
+    val prefs by viewModel.userPreferences.collectAsStateWithLifecycle()
+    val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
+    val alerts by viewModel.hazardAlerts.collectAsStateWithLifecycle()
+    val hazards by viewModel.hazardsByState.collectAsStateWithLifecycle()
     var showPdf by remember { mutableStateOf(false) }
 
     LaunchedEffect(state) { viewModel.refreshHazards(state) }
