@@ -29,6 +29,24 @@ html,body{margin:0;padding:0;height:100%;background:#0A0F1D;font-family:Roboto,A
 .wind{color:#fff;font-size:10px;font-weight:700;text-shadow:0 0 3px #000,0 0 2px #000;white-space:nowrap}
 .wind .arr{display:inline-block;font-size:15px;line-height:15px}
 #msg{position:absolute;z-index:950;left:50%;top:50%;transform:translate(-50%,-50%);background:rgba(10,15,29,.85);border-radius:8px;padding:6px 10px;font-size:11px;display:none;text-align:center;max-width:80%}
+#lbtn{position:absolute;z-index:1001;left:6px;top:48px;background:rgba(10,15,29,.92);border:1px solid #1E3A5F;color:#E2E8F0;border-radius:16px;padding:6px 11px;font-size:12px;font-weight:700;display:none}
+#lbtn.on{border-color:#38BDF8;color:#7DD3FC}
+#lpanel{position:absolute;z-index:1002;left:6px;top:84px;width:250px;max-width:calc(100% - 70px);max-height:62%;overflow:auto;background:rgba(10,15,29,.95);border:1px solid #1E293B;border-radius:12px;padding:6px 8px;display:none;font-size:12px}
+.lrow{padding:5px 0;border-bottom:1px solid #1E293B}
+.lrow label{display:flex;align-items:center;gap:6px;font-weight:700}
+.lsrc{font-size:9px;color:#94A3B8;line-height:1.25;margin-top:2px}
+.lsrc.stale,.lst.stale{color:#FCA5A5}
+.mods{display:flex;gap:4px;margin-top:4px}
+.mods button{border:1px solid #334155;border-radius:12px;padding:3px 8px;font-size:10px;color:#CBD5E1;background:transparent}
+.mods button.on{background:#0284C7;border-color:#0284C7;color:#fff}
+#lstat{position:absolute;z-index:899;left:6px;top:84px;max-width:64%;display:none;pointer-events:none}
+.lst{background:rgba(10,15,29,.84);border:1px solid #1E3A5F;border-radius:6px;padding:2px 6px;font-size:9px;margin-bottom:3px;color:#CBD5E1;line-height:1.25}
+.lst.stale{border-color:#EF4444}
+.mlbl{font-size:10px;font-weight:700;color:#fff;text-shadow:0 0 3px #000,0 0 2px #000;white-space:nowrap}
+.mlbl .arr{display:inline-block}
+.bolt{font-size:17px;line-height:17px;text-shadow:0 0 3px #000,0 0 2px #000}
+.leaflet-popup-content{font-size:12px;line-height:1.35;margin:8px 10px}
+.leaflet-popup-content small{color:#475569}
 </style>
 </head>
 <body>
@@ -36,6 +54,9 @@ html,body{margin:0;padding:0;height:100%;background:#0A0F1D;font-family:Roboto,A
 <div id="badge" class="badge" style="display:none"></div>
 <div id="legend" class="legend" style="display:none"><div>Chuva (radar)</div><div class="bar"></div><div class="lbl"><span>fraca</span><span>forte</span></div></div>
 <div id="msg"></div>
+<button id="lbtn" aria-label="Camadas em tempo real">&#9776; Camadas</button>
+<div id="lpanel"></div>
+<div id="lstat"></div>
 <div id="panel">
   <div class="row">
     <button id="play" aria-label="Reproduzir ou pausar">&#10074;&#10074;</button>
@@ -258,6 +279,9 @@ function show(i){
   var sub = f0.model ? 'PREVISÃO DO MODELO (Open-Meteo) — não é radar' :
     ('Radar RainViewer' + (cur === lastRadar ? ' • último quadro' : ''));
   if (showClouds && f0.irT) sub += ' • nuvens ' + hhmm(f0.irT);
+  // Atraso: radar > 30 min, nuvens IR > 90 min (latência normal do GOES/GIBS é 30–70 min)
+  if (!f0.model && cur === lastRadar && Date.now()/1000 - f0.t > 1800) sub += ' • radar ATRASADO';
+  if (showClouds && f0.irT && Date.now()/1000 - f0.irT > 5400) sub += ' • nuvens ATRASADAS';
   badge.className = 'badge' + (f0.model ? ' model' : '');
   badge.innerHTML = lbl + '<small>' + sub + '</small>';
   badge.style.display = 'block';
@@ -310,7 +334,8 @@ if (MODE === 'rain') {
     irLatest = t;
     if (t) {
       irLayer(t, 0.5).addTo(map);
-      badge.innerHTML = 'Satélite + nuvens ' + hhmm(t) + '<small>Esri World Imagery • GOES-East IR (NASA GIBS) • vento Open-Meteo</small>';
+      badge.innerHTML = 'Satélite + nuvens ' + hhmm(t) + (Date.now()/1000 - t > 5400 ? ' (atrasado)' : '') +
+        '<small>Esri World Imagery • GOES-East IR (NASA GIBS) • vento Open-Meteo</small>';
     } else {
       badge.innerHTML = 'Satélite<small>Esri World Imagery • nuvens indisponíveis agora</small>';
     }
@@ -318,6 +343,279 @@ if (MODE === 'rain') {
   });
   loadWind();
 }
+
+/* ---------------- Camadas em tempo (quase) real: só nos mapas em tela cheia ---------------- */
+// Fontes com dado atual verificado (curl, 07/10/2026). Cada camada mostra fonte e horário em BRT e marca "atrasado".
+var UF = (P.get('uf') || '').toUpperCase();
+function fmtBrt(sec){
+  try { return new Date(sec*1000).toLocaleString('pt-BR',{timeZone:TZ,day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}).replace(',', '') + ' BRT'; }
+  catch(e){ return hhmm(sec); }
+}
+function esc(s){ return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+var rid = 0, pending = {};
+function nativeReq(kind, arg, cb){
+  if (!window.SimetNative) { cb(null, 'indisponível neste mapa'); return; }
+  var id = 'r' + (++rid); pending[id] = cb;
+  try { window.SimetNative.request(kind, arg || '', id); } catch(e){ delete pending[id]; cb(null, 'falha na ponte'); }
+}
+function onNative(id, data){
+  var cb = pending[id]; delete pending[id]; if (!cb) return;
+  if (!data || data.error) cb(null, (data && data.error) || 'sem resposta'); else cb(data, null);
+}
+var MODELS = {
+  gfs:   {name: 'GFS (NOAA)',   om: 'gfs_seamless',  meta: 'ncep_gfs013'},
+  icon:  {name: 'ICON (DWD)',   om: 'icon_seamless', meta: 'dwd_icon'},
+  ecmwf: {name: 'ECMWF IFS',    om: 'ecmwf_ifs025',  meta: 'ecmwf_ifs025'}
+};
+var MODEL = 'icon';
+var RT = {
+  metar:   {label: 'Aeroportos (METAR): chuva, vento, temperatura', on: false, group: L.layerGroup(), st: []},
+  cemaden: {label: 'Pluviômetros CEMADEN (chuva 1 h / 24 h)', on: false, group: L.layerGroup(), st: []},
+  model:   {label: 'Modelo: chuva e vento da hora', on: false, group: L.layerGroup(), st: []},
+  storm:   {label: 'Trovoadas (observadas e previstas)', on: false, group: L.layerGroup(), st: []}
+};
+var STALE = {metarMin: 90, cemadenMin: 60, modelRunH: 12};
+function setSt(key, lines){ RT[key].st = lines; renderRt(); }
+function stLine(text, stale){ return {text: text, stale: !!stale}; }
+function renderRt(){
+  var p = document.getElementById('lpanel'), s = document.getElementById('lstat'), html = '', sh = '';
+  Object.keys(RT).forEach(function(k){
+    var L0 = RT[k];
+    html += '<div class="lrow"><label><input type="checkbox" data-k="' + k + '"' + (L0.on ? ' checked' : '') + '> ' + esc(L0.label) + '</label>';
+    if (k === 'model' || k === 'storm') {
+      html += '<div class="mods">' + Object.keys(MODELS).map(function(m){
+        return '<button data-m="' + m + '" class="' + (m === MODEL ? 'on' : '') + '">' + m.toUpperCase() + '</button>'; }).join('') + '</div>';
+    }
+    if (L0.on) L0.st.forEach(function(l){
+      html += '<div class="lsrc' + (l.stale ? ' stale' : '') + '">' + esc(l.text) + '</div>';
+      sh += '<div class="lst' + (l.stale ? ' stale' : '') + '">' + esc(l.text) + '</div>';
+    });
+    html += '</div>';
+  });
+  html += '<div class="lsrc">Sem fonte pública de raios (descargas) em tempo real: "trovoadas" = METAR com TS + previsão do modelo.</div>';
+  p.innerHTML = html;
+  s.innerHTML = sh;
+  s.style.display = (sh && p.style.display !== 'block') ? 'block' : 'none';
+  document.getElementById('lbtn').classList.toggle('on', Object.keys(RT).some(function(k){ return RT[k].on; }));
+  Array.prototype.forEach.call(p.querySelectorAll('input[data-k]'), function(cb){
+    cb.onchange = function(){ toggleRt(cb.getAttribute('data-k'), cb.checked); };
+  });
+  Array.prototype.forEach.call(p.querySelectorAll('button[data-m]'), function(b){
+    b.onclick = function(){ MODEL = b.getAttribute('data-m'); modelCache = {}; if (RT.model.on) loadModelRt(); if (RT.storm.on) loadStorm(); renderRt(); };
+  });
+}
+function toggleRt(k, on){
+  RT[k].on = on;
+  if (on) { RT[k].group.addTo(map); ({metar: loadMetar, cemaden: loadCemaden, model: loadModelRt, storm: loadStorm})[k](); }
+  else { map.removeLayer(RT[k].group); RT[k].group.clearLayers(); RT[k].st = []; }
+  renderRt();
+}
+
+// --- METAR (aviationweather.gov) ---
+var metarData = null;
+function wxPt(wx){
+  if (!wx) return '';
+  var m = [['TS','trovoada'],['SH','pancadas'],['GR','granizo'],['GS','granizo pequeno'],['RA','chuva'],['DZ','garoa'],['FG','nevoeiro'],['BR','névoa'],['HZ','névoa seca'],['SQ','rajadas (linha)']];
+  var out = []; m.forEach(function(x){ if (wx.indexOf(x[0]) >= 0) out.push(x[1]); });
+  var q = wx.charAt(0) === '+' ? ' forte' : (wx.charAt(0) === '-' ? ' fraca' : '');
+  if (wx.indexOf('VC') >= 0) out.push('nas proximidades');
+  return (out.join(', ') || wx) + q;
+}
+function getMetar(cb){
+  if (metarData && Date.now()/1000 - metarData.fetched < 600) { cb(metarData, null); return; }
+  nativeReq('metar', '', function(d, err){ if (d) metarData = d; cb(d, err); });
+}
+function loadMetar(){
+  setSt('metar', [stLine('METAR: carregando…')]);
+  getMetar(function(d, err){
+    if (!RT.metar.on) return;
+    RT.metar.group.clearLayers();
+    if (!d) { setSt('metar', [stLine('METAR indisponível (' + err + ')', true)]); return; }
+    var now = Date.now()/1000, newest = 0, stale = 0;
+    d.items.forEach(function(o){
+      newest = Math.max(newest, o.t);
+      var old = (now - o.t) / 60 > STALE.metarMin; if (old) stale++;
+      var color = !o.wx ? '#CBD5E1' : (o.wx.indexOf('TS') >= 0 ? '#C084FC' : (/RA|DZ|SH/.test(o.wx) ? '#60A5FA' : '#CBD5E1'));
+      var kmh = o.wspd != null ? Math.round(o.wspd * 1.852) : null;
+      var arrow = (o.wdir != null && kmh) ? '<span class="arr" style="transform:rotate(' + ((o.wdir + 180) % 360) + 'deg)">&#8593;</span>' + kmh : '';
+      var html = '<div class="mlbl" style="opacity:' + (old ? 0.45 : 1) + '"><span style="color:' + color + '">&#9679;</span> ' +
+        (o.temp != null ? Math.round(o.temp) + '° ' : '') + arrow + '</div>';
+      var pop = '<b>' + esc(o.id) + '</b> ' + esc(o.name) + '<br>Observação: ' + fmtBrt(o.t) + (old ? ' <b style="color:#B91C1C">(atrasado)</b>' : '') +
+        (o.temp != null ? '<br>Temperatura: ' + o.temp + ' °C' + (o.dewp != null ? ' (orvalho ' + o.dewp + ' °C)' : '') : '') +
+        (kmh != null ? '<br>Vento: ' + (o.wdir != null ? Math.round(o.wdir) + '° ' : (o.wdirTxt ? esc(o.wdirTxt) + ' ' : '')) + kmh + ' km/h' + (o.wgst ? ', rajadas ' + Math.round(o.wgst * 1.852) + ' km/h' : '') : '') +
+        (o.wx ? '<br>Tempo presente: ' + esc(wxPt(o.wx)) + ' (' + esc(o.wx) + ')' : '<br>Sem chuva/trovoada reportada') +
+        (o.visib ? '<br>Visibilidade: ' + esc(o.visib) + ' mi' : '') +
+        '<br><small>' + esc(o.raw) + '</small><br><small>Fonte: aviationweather.gov (NOAA/AWC), METAR do DECEA</small>';
+      L.marker([o.lat, o.lon], {icon: L.divIcon({className: '', html: html, iconSize: [64, 16], iconAnchor: [6, 8]})}).bindPopup(pop).addTo(RT.metar.group);
+    });
+    var lines = [stLine('METAR (aviationweather.gov): ' + d.items.length + ' aeroportos • obs. mais recente ' + (newest ? fmtBrt(newest) : '—'),
+      !newest || (now - newest) / 60 > STALE.metarMin)];
+    if (stale) lines.push(stLine(stale + ' aeroporto(s) com observação atrasada (> ' + STALE.metarMin + ' min, esmaecidos)', true));
+    setSt('metar', lines);
+    map.attributionControl.addAttribution('METAR: NOAA/AWC');
+  });
+}
+
+// --- CEMADEN (pluviômetros) ---
+function loadCemaden(){
+  if (['SP','PR','RS'].indexOf(UF) < 0) { setSt('cemaden', [stLine('Estado não informado', true)]); return; }
+  setSt('cemaden', [stLine('CEMADEN: carregando ' + UF + '…')]);
+  nativeReq('cemaden', UF, function(d, err){
+    if (!RT.cemaden.on) return;
+    RT.cemaden.group.clearLayers();
+    if (!d) { setSt('cemaden', [stLine('CEMADEN indisponível (' + err + ')', true)]); return; }
+    var now = Date.now()/1000, newest = 0, wet = 0;
+    d.items.forEach(function(o){
+      newest = Math.max(newest, o.t);
+      var a1 = o.a1, a24 = o.a24;
+      if (a1 != null && a1 >= 0.2) wet++;
+      var c = (a1 != null ? rainColor(a1) : null) || ((a24 != null && a24 >= 0.2) ? '#64748B' : '#334155');
+      var r = (a1 != null && a1 >= 0.2) ? Math.min(11, 4 + a1) : 3;
+      var pop = '<b>' + esc(o.c) + '</b> (' + esc(d.uf) + ')<br>Chuva 1 h: ' + (a1 != null ? a1.toFixed(1) + ' mm' : '—') +
+        '<br>Chuva 24 h: ' + (a24 != null ? a24.toFixed(1) + ' mm' : '—') + '<br>Estações: ' + o.n + ' (maior valor entre elas)' +
+        '<br>Última leitura: ' + fmtBrt(o.t) + ((now - o.t) / 60 > STALE.cemadenMin ? ' <b style="color:#B91C1C">(atrasado)</b>' : '') +
+        '<br><small>Posição aproximada: sede do município. Fonte: CEMADEN/MCTI</small>';
+      L.circleMarker([o.lat, o.lon], {radius: r, color: '#0F172A', weight: 1, fillColor: c, fillOpacity: 0.9}).bindPopup(pop).addTo(RT.cemaden.group);
+    });
+    var hidden = d.stations - d.fresh;
+    setSt('cemaden', [
+      stLine('CEMADEN ' + d.uf + ': ' + d.items.length + ' municípios (' + d.fresh + ' pluviômetros) • leitura mais recente ' + (newest ? fmtBrt(newest) : '—'),
+        !newest || (now - newest) / 60 > STALE.cemadenMin),
+      stLine(wet + ' município(s) com chuva na última hora' + (hidden > 0 ? ' • ' + hidden + ' estações sem leitura há > 3 h (ocultas)' : ''))
+    ]);
+    map.attributionControl.addAttribution('Pluviômetros: CEMADEN');
+  });
+}
+
+// --- Modelo (Open-Meteo: GFS / ICON / ECMWF) ---
+var modelCache = {}, metaCache = {};
+function viewGrid(n){
+  var b = map.getBounds(), la = [], lo = [], s = b.getSouth(), w = b.getWest(), nn = b.getNorth(), e = b.getEast();
+  for (var i = 0; i < n; i++) for (var k = 0; k < n; k++) {
+    la.push((s + (i + 0.5) * (nn - s) / n).toFixed(3)); lo.push((w + (k + 0.5) * (e - w) / n).toFixed(3));
+  }
+  return {lat: la, lon: lo, dLat: (nn - s) / n / 2, dLon: (e - w) / n / 2, key: [s.toFixed(1), w.toFixed(1), nn.toFixed(1), e.toFixed(1)].join(',')};
+}
+function getMeta(m, cb){
+  if (metaCache[m] && Date.now() - metaCache[m].at < 600000) { cb(metaCache[m].d); return; }
+  fetch('https://api.open-meteo.com/data/' + MODELS[m].meta + '/static/meta.json').then(function(r){ return r.json(); })
+    .then(function(d){ metaCache[m] = {at: Date.now(), d: d}; cb(d); }).catch(function(){ cb(null); });
+}
+function getModelGrid(cb){
+  var g = viewGrid(6), m = MODEL, key = m + '|' + g.key;
+  if (modelCache[key] && Date.now() - modelCache[key].at < 600000) { cb(modelCache[key].d, g, null); return; }
+  var url = 'https://api.open-meteo.com/v1/forecast?latitude=' + g.lat.join(',') + '&longitude=' + g.lon.join(',') +
+    '&current=wind_speed_10m,wind_direction_10m,wind_gusts_10m&hourly=precipitation,weather_code,cape&forecast_hours=3' +
+    '&models=' + MODELS[m].om + '&wind_speed_unit=kmh&timezone=GMT';
+  fetch(url).then(function(r){ return r.json(); }).then(function(arr){
+    if (!Array.isArray(arr)) { if (arr && arr.error) throw new Error(arr.reason || 'erro'); arr = [arr]; }
+    modelCache[key] = {at: Date.now(), d: arr}; cb(arr, g, null);
+  }).catch(function(e){ cb(null, g, e && e.message ? e.message : 'falha de rede'); });
+}
+function runLine(m, meta){
+  if (!meta || !meta.last_run_initialisation_time) return stLine(MODELS[m].name + ': horário da rodada indisponível', true);
+  var age = (Date.now()/1000 - meta.last_run_availability_time) / 3600;
+  return stLine(MODELS[m].name + ' via Open-Meteo • rodada ' + fmtBrt(meta.last_run_initialisation_time) +
+    ' • publicada ' + fmtBrt(meta.last_run_availability_time), age > STALE.modelRunH);
+}
+function loadModelRt(){
+  var m = MODEL;
+  setSt('model', [stLine('Modelo ' + MODELS[m].name + ': carregando…')]);
+  getModelGrid(function(arr, g, err){
+    if (!RT.model.on || m !== MODEL) return;
+    RT.model.group.clearLayers();
+    if (!arr) { setSt('model', [stLine('Modelo indisponível (' + err + ')', true)]); return; }
+    var hourT = null;
+    arr.forEach(function(p){
+      if (!p || !p.hourly) return;
+      var v = p.hourly.precipitation ? p.hourly.precipitation[0] : null;
+      if (hourT == null && p.hourly.time) hourT = Date.parse(p.hourly.time[0] + ':00Z') / 1000;
+      var c = v == null ? null : rainColor(v);
+      if (c) L.rectangle([[p.latitude - g.dLat, p.longitude - g.dLon], [p.latitude + g.dLat, p.longitude + g.dLon]],
+        {pane: 'modelPane', stroke: false, fillColor: c, fillOpacity: 0.4, interactive: false}).addTo(RT.model.group);
+      var cu = p.current || {};
+      if (cu.wind_speed_10m != null && cu.wind_direction_10m != null) {
+        var html = '<div class="wind"><span class="arr" style="transform:rotate(' + ((cu.wind_direction_10m + 180) % 360) + 'deg)">&#8593;</span> ' +
+          Math.round(cu.wind_speed_10m) + (cu.wind_gusts_10m != null && cu.wind_gusts_10m >= 50 ? '<span style="color:#FCA5A5"> R' + Math.round(cu.wind_gusts_10m) + '</span>' : '') + '</div>';
+        L.marker([p.latitude, p.longitude], {icon: L.divIcon({className: '', html: html, iconSize: [56, 18], iconAnchor: [10, 9]}), interactive: false}).addTo(RT.model.group);
+      }
+    });
+    getMeta(m, function(meta){
+      if (!RT.model.on || m !== MODEL) return;
+      setSt('model', [runLine(m, meta), stLine('Chuva da hora ' + (hourT ? fmtBrt(hourT) : '—') + ' (mm, cores da legenda) • vento médio km/h, R = rajada ≥ 50 • PREVISÃO, não é observação')]);
+    });
+    map.attributionControl.addAttribution('Modelos: Open-Meteo (NOAA GFS, DWD ICON, ECMWF)');
+  });
+}
+
+// --- Trovoadas: METAR (TS observada) + modelo (códigos 95/96/99 nas próximas 3 h) ---
+function loadStorm(){
+  var m = MODEL;
+  setSt('storm', [stLine('Trovoadas: carregando…')]);
+  var lines = {obs: null, mod: null};
+  function done(){ if (RT.storm.on && lines.obs && lines.mod) setSt('storm', [lines.obs, lines.mod]); }
+  RT.storm.group.clearLayers();
+  getMetar(function(d, err){
+    if (!RT.storm.on) return;
+    if (!d) { lines.obs = stLine('Observadas (METAR): indisponível (' + err + ')', true); done(); return; }
+    var now = Date.now()/1000, n = 0, newest = 0;
+    d.items.forEach(function(o){
+      newest = Math.max(newest, o.t);
+      if (!o.wx || o.wx.indexOf('TS') < 0 || (now - o.t) / 60 > 120) return;
+      n++;
+      L.marker([o.lat, o.lon], {icon: L.divIcon({className: '', html: '<div class="bolt" style="color:#C084FC">&#9889;</div>', iconSize: [18, 18], iconAnchor: [9, 9]})})
+        .bindPopup('<b>Trovoada observada</b><br>' + esc(o.id) + ' ' + esc(o.name) + '<br>' + esc(wxPt(o.wx)) + '<br>Observação: ' + fmtBrt(o.t) + '<br><small>Fonte: METAR (aviationweather.gov)</small>')
+        .addTo(RT.storm.group);
+    });
+    lines.obs = stLine('Observadas (METAR, últimas 2 h): ' + n + ' aeroporto(s) • obs. mais recente ' + (newest ? fmtBrt(newest) : '—'), !newest || (now - newest) / 60 > STALE.metarMin);
+    done();
+  });
+  getModelGrid(function(arr, g, err){
+    if (!RT.storm.on || m !== MODEL) return;
+    if (!arr) { lines.mod = stLine('Previstas (modelo): indisponível (' + err + ')', true); done(); return; }
+    var n = 0;
+    arr.forEach(function(p){
+      if (!p || !p.hourly || !p.hourly.weather_code) return;
+      var codes = p.hourly.weather_code, capes = p.hourly.cape || [], hit = -1;
+      for (var i = 0; i < codes.length; i++) if (codes[i] === 95 || codes[i] === 96 || codes[i] === 99) { hit = i; break; }
+      if (hit < 0) return;
+      n++;
+      var t = Date.parse(p.hourly.time[hit] + ':00Z') / 1000;
+      L.marker([p.latitude, p.longitude], {icon: L.divIcon({className: '', html: '<div class="bolt" style="color:#FBBF24">&#9889;</div>', iconSize: [18, 18], iconAnchor: [9, 9]})})
+        .bindPopup('<b>Trovoada prevista pelo modelo</b> ' + esc(MODELS[m].name) + '<br>Hora: ' + fmtBrt(t) + (codes[hit] !== 95 ? ' (com granizo)' : '') +
+          (capes[hit] != null ? '<br>CAPE: ' + Math.round(capes[hit]) + ' J/kg' : '') + '<br><small>Previsão (Open-Meteo), não é detecção de raios</small>')
+        .addTo(RT.storm.group);
+    });
+    lines.mod = stLine('Previstas (modelo ' + MODELS[m].name + ', próximas 3 h): ' + n + ' ponto(s) da grade');
+    done();
+  });
+}
+
+var rtTimer = null;
+map.on('moveend', function(){
+  if (rtTimer) clearTimeout(rtTimer);
+  rtTimer = setTimeout(function(){ if (RT.model.on) loadModelRt(); if (RT.storm.on) loadStorm(); }, 700);
+});
+function reportInset(){
+  try {
+    var p = document.getElementById('panel');
+    var h = (p && p.style.display === 'block') ? Math.ceil(p.offsetHeight + 18) : 0;
+    if (window.SimetNative && window.SimetNative.bottomInset) window.SimetNative.bottomInset(h);
+  } catch(e){}
+}
+if (INTERACTIVE && MODE !== 'trajectory') {
+  var lbtn = document.getElementById('lbtn');
+  lbtn.style.display = 'block';
+  lbtn.onclick = function(){
+    var p = document.getElementById('lpanel');
+    p.style.display = (p.style.display === 'block') ? 'none' : 'block';
+    renderRt();
+  };
+  renderRt();
+  setInterval(function(){ if (RT.metar.on) { metarData = null; loadMetar(); } if (RT.cemaden.on) loadCemaden(); }, 10 * 60 * 1000);
+}
+setTimeout(reportInset, 300);
+window.addEventListener('resize', function(){ setTimeout(reportInset, 100); });
 
 var meLayer = null;
 window.simet = {
@@ -337,6 +635,7 @@ window.simet = {
     map.setView(ll, Math.max(map.getZoom(), 8), {animate: false});
     if (MODE === 'satellite') { BBOX = []; loadWind(); }
   },
+  onNative: onNative,
   pause: function(){ setPlaying(false); },
   resume: function(){ if (MODE === 'trajectory') setPlaying(true); }
 };

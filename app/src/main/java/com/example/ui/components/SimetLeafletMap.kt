@@ -26,6 +26,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -66,7 +67,7 @@ object SimetMapHtml {
             append("?mode=").append(mode.param)
             append("&interactive=").append(if (interactive) "1" else "0")
             append(String.format(Locale.US, "&lat=%.4f&lon=%.4f&z=%d", lat, lon, zoom))
-            if (state != null) append("&bbox=").append(state.bboxParam)
+            if (state != null) append("&bbox=").append(state.bboxParam).append("&uf=").append(state.uf)
             if (satelliteBase) append("&base=sat")
         }
 }
@@ -100,6 +101,11 @@ fun SimetLeafletMap(
     var loadedCenter by remember { mutableStateOf<Triple<Double, Double, Int>?>(null) }
     var myFix by remember { mutableStateOf<MyLocationFix?>(null) }
     val locator = rememberMyLocationRequester { myFix = it }
+    // Painel inferior do mapa (play/slider), informado pela página; o botão de localização fica acima dele
+    var bottomInsetPx by remember { mutableStateOf(0) }
+    val bridgeScope = rememberCoroutineScope()
+    // Camadas em tempo real (METAR/CEMADEN) só nos mapas interativos (tela cheia), que carregam apenas o asset local
+    val withBridge = interactive && mode != SimetMapMode.TRAJECTORY
 
     fun load(v: WebView) {
         failed = false; loading = true
@@ -179,6 +185,7 @@ fun SimetLeafletMap(
                             return true
                         }
                     }
+                    if (withBridge) addJavascriptInterface(SimetMapBridge(ctx, bridgeScope, this) { bottomInsetPx = it }, "SimetNative")
                     webView = this
                     load(this)
                 }
@@ -193,7 +200,11 @@ fun SimetLeafletMap(
         }
 
         if (showMyLocation && !failed) {
-            MyLocationButton(locator, Modifier.align(Alignment.BottomEnd).padding(MyLocationButtonPadding))
+            MyLocationButton(
+                locator,
+                Modifier.align(Alignment.BottomEnd).padding(MyLocationButtonPadding)
+                    .padding(bottom = if (bottomInsetPx > 0) (bottomInsetPx + 8).dp else 0.dp)
+            )
         }
 
         if (loading && !failed) {

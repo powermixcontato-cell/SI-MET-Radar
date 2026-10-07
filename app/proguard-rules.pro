@@ -28,3 +28,8 @@
 -dontwarn org.bouncycastle.**
 -dontwarn org.openjsse.**
 -dontwarn javax.annotation.**
+
+# v5.1: ponte JS do mapa Leaflet (métodos chamados pelo WebView por reflexão)
+-keepclassmembers class com.example.ui.components.SimetMapBridge {
+    @android.webkit.JavascriptInterface <methods>;
+}
