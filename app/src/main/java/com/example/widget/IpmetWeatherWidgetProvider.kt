@@ -12,6 +12,7 @@ import com.example.data.local.AppDatabase
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import java.util.Locale
 
 class IpmetWeatherWidgetProvider : AppWidgetProvider() {
 
@@ -27,7 +28,11 @@ class IpmetWeatherWidgetProvider : AppWidgetProvider() {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
+        // goAsync(): mantém o BroadcastReceiver vivo até a consulta ao banco terminar
+        // (sem isso o processo pode ser encerrado antes de atualizar o widget).
+        val pendingResult = goAsync()
         CoroutineScope(Dispatchers.IO).launch {
+          try {
             val db = AppDatabase.getInstance(context)
             val prefs = db.weatherDao().getUserPreferencesSync()
             val stationId = prefs?.activeStationId ?: "sao_paulo"
@@ -38,9 +43,10 @@ class IpmetWeatherWidgetProvider : AppWidgetProvider() {
                 val views = RemoteViews(context.packageName, R.layout.widget_weather)
                 views.setOnClickPendingIntent(R.id.widget_root, pendingIntent)
 
-                if (station != null) {
+                // lastUpdated = 0: estação ainda sem dado real (antes mostrava "0.0°C")
+                if (station != null && station.lastUpdated > 0L) {
                     views.setTextViewText(R.id.widget_city, "${station.name} (${station.region})")
-                    views.setTextViewText(R.id.widget_temp, "${station.currentTemp}°C")
+                    views.setTextViewText(R.id.widget_temp, String.format(Locale("pt", "BR"), "%.1f°C", station.currentTemp))
                     views.setTextViewText(R.id.widget_condition, station.weatherCondition)
                     views.setTextViewText(
                         R.id.widget_rain_alert,
@@ -50,10 +56,18 @@ class IpmetWeatherWidgetProvider : AppWidgetProvider() {
                             "🌤️ Radar IPMet: Sem chuva severa no momento (${station.dbzReflectivity} dBZ)"
                         }
                     )
+                } else {
+                    station?.let { views.setTextViewText(R.id.widget_city, "${it.name} (${it.region})") }
+                    views.setTextViewText(R.id.widget_temp, context.getString(R.string.widget_placeholder_temp))
+                    views.setTextViewText(R.id.widget_condition, context.getString(R.string.widget_placeholder_condition))
+                    views.setTextViewText(R.id.widget_rain_alert, context.getString(R.string.widget_placeholder_rain))
                 }
 
                 appWidgetManager.updateAppWidget(widgetId, views)
             }
+          } finally {
+            pendingResult.finish()
+          }
         }
     }
 }

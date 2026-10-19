@@ -649,15 +649,20 @@ class WeatherViewModel(private val repository: WeatherRepository) : ViewModel() 
         }
     }
 
+    /** Chaves (OpenWeather, Weatherbit) lidas do armazenamento cifrado, para a tela de configurações. */
+    private val _apiKeys = MutableStateFlow("" to "")
+    val apiKeys: StateFlow<Pair<String, String>> = _apiKeys.asStateFlow()
+
+    fun loadApiKeys() {
+        viewModelScope.launch { _apiKeys.value = repository.readApiKeys() }
+    }
+
     fun saveApiKeys(openWeatherKey: String, weatherbitKey: String) {
         viewModelScope.launch {
-            val current = userPreferences.value
-            repository.updatePreferences(
-                current.copy(
-                    openWeatherApiKey = openWeatherKey.trim(),
-                    weatherbitApiKey = weatherbitKey.trim()
-                )
-            )
+            // Antes gravava em texto puro no Room; na abertura seguinte a migração movia para o
+            // armazenamento cifrado e apagava do Room, e a tela (que lia do Room) mostrava vazio.
+            repository.saveApiKeys(openWeatherKey.trim(), weatherbitKey.trim())
+            _apiKeys.value = repository.readApiKeys()
             repository.refreshStation(_selectedStationId.value)
         }
     }
