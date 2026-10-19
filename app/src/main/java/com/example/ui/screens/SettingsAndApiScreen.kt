@@ -41,6 +41,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -65,8 +66,10 @@ fun SettingsAndApiScreen(
     val context = LocalContext.current
     val prefs by viewModel.userPreferences.collectAsState()
 
-    var openWeatherKeyInput by remember(prefs.openWeatherApiKey) { mutableStateOf(prefs.openWeatherApiKey) }
-    var weatherbitKeyInput by remember(prefs.weatherbitApiKey) { mutableStateOf(prefs.weatherbitApiKey) }
+    val savedKeys by viewModel.apiKeys.collectAsState()
+    LaunchedEffect(Unit) { viewModel.loadApiKeys() }
+    var openWeatherKeyInput by remember(savedKeys.first) { mutableStateOf(savedKeys.first) }
+    var weatherbitKeyInput by remember(savedKeys.second) { mutableStateOf(savedKeys.second) }
 
     LazyColumn(
         modifier = modifier
