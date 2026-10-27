@@ -202,7 +202,7 @@ class InmetAlertsService(
     private val client: OkHttpClient = SimetApiConfig.applyTo(
         OkHttpClient.Builder().connectTimeout(10, TimeUnit.SECONDS).readTimeout(15, TimeUnit.SECONDS)
     ).build(),
-    /** Servidor próprio ligado → <base>/v1/alerts/sp/rss (mesmo formato do RSS do INMET, só SP e vigentes). */
+    /** Servidor próprio ligado → <base>/v1/alerts/sp/rss (mesmo formato do RSS do INMET). */
     private val url: String = SimetApiConfig.inmetAlertsUrl()
 ) {
     /** Baixa e faz o parse do feed. Lança exceção em erro HTTP/rede/parse. */

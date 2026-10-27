@@ -1,5 +1,7 @@
 package com.example.ui.screens
 
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -11,9 +13,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Agriculture
 import androidx.compose.material.icons.filled.NotificationsActive
-import androidx.compose.material.icons.filled.Sensors
-import androidx.compose.material.icons.filled.ShowChart
-import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.Apps
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.WbSunny
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
@@ -29,7 +30,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -44,10 +46,10 @@ fun MainAppScaffold(
     viewModel: WeatherViewModel,
     modifier: Modifier = Modifier
 ) {
-    var currentTab by remember { mutableIntStateOf(0) }
-    val alerts by viewModel.allAlerts.collectAsState()
-
-    val unacknowledgedAlertsCount = alerts.count { !it.isAcknowledged }
+    var currentTab by rememberSaveable { mutableIntStateOf(0) }
+    var othersRoute by rememberSaveable { mutableStateOf<OthersRoute?>(null) }
+    // v5.1: selo com os alertas (3 categorias) do estado selecionado
+    val hazardAlerts by viewModel.hazardAlerts.collectAsStateWithLifecycle()
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -60,113 +62,42 @@ fun MainAppScaffold(
                     .zIndex(10f)
                     .testTag("main_bottom_bar")
             ) {
-                // Tab 0: Radar
-                NavigationBarItem(
-                    selected = currentTab == 0,
-                    onClick = { currentTab = 0 },
-                    icon = { Icon(Icons.Default.Sensors, contentDescription = "Radar") },
-                    label = { Text("Radar SP", fontSize = 11.sp) },
-                    colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = MaterialTheme.colorScheme.primary,
-                        selectedTextColor = MaterialTheme.colorScheme.primary,
-                        unselectedIconColor = Color(0xFF94A3B8),
-                        unselectedTextColor = Color(0xFF94A3B8),
-                        indicatorColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
-                    ),
-                    modifier = Modifier.testTag("nav_tab_radar")
+                val items = listOf(
+                    Triple("Início", Icons.Default.Home, "nav_tab_radar"),
+                    Triple("Previsão", Icons.Default.WbSunny, "nav_tab_forecast"),
+                    Triple("Agro", Icons.Default.Agriculture, "nav_tab_agroclima"),
+                    Triple("Alertas", Icons.Default.NotificationsActive, "nav_tab_alerts"),
+                    Triple("Outros", Icons.Default.Apps, "nav_tab_others")
                 )
-
-                // Tab 1: Previsão Diária
-                NavigationBarItem(
-                    selected = currentTab == 1,
-                    onClick = { currentTab = 1 },
-                    icon = { Icon(Icons.Default.WbSunny, contentDescription = "Previsão") },
-                    label = { Text("Previsão", fontSize = 11.sp) },
-                    colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = MaterialTheme.colorScheme.primary,
-                        selectedTextColor = MaterialTheme.colorScheme.primary,
-                        unselectedIconColor = Color(0xFF94A3B8),
-                        unselectedTextColor = Color(0xFF94A3B8),
-                        indicatorColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
-                    ),
-                    modifier = Modifier.testTag("nav_tab_forecast")
-                )
-
-                // Tab 2: AgroClima SP
-                NavigationBarItem(
-                    selected = currentTab == 2,
-                    onClick = { currentTab = 2 },
-                    icon = { Icon(Icons.Default.Agriculture, contentDescription = "AgroClima") },
-                    label = { Text("AgroClima", fontSize = 11.sp) },
-                    colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = Color(0xFF10B981),
-                        selectedTextColor = Color(0xFF10B981),
-                        unselectedIconColor = Color(0xFF94A3B8),
-                        unselectedTextColor = Color(0xFF94A3B8),
-                        indicatorColor = Color(0xFF10B981).copy(alpha = 0.18f)
-                    ),
-                    modifier = Modifier.testTag("nav_tab_agroclima")
-                )
-
-                // Tab 3: Tendências & Histórico
-                NavigationBarItem(
-                    selected = currentTab == 3,
-                    onClick = { currentTab = 3 },
-                    icon = { Icon(Icons.Default.ShowChart, contentDescription = "Tendências") },
-                    label = { Text("Tendências", fontSize = 11.sp) },
-                    colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = MaterialTheme.colorScheme.primary,
-                        selectedTextColor = MaterialTheme.colorScheme.primary,
-                        unselectedIconColor = Color(0xFF94A3B8),
-                        unselectedTextColor = Color(0xFF94A3B8),
-                        indicatorColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
-                    ),
-                    modifier = Modifier.testTag("nav_tab_trends")
-                )
-
-                // Tab 4: Alertas e Regiões
-                NavigationBarItem(
-                    selected = currentTab == 4,
-                    onClick = { currentTab = 4 },
-                    icon = {
-                        if (unacknowledgedAlertsCount > 0) {
-                            BadgedBox(badge = {
-                                Badge(containerColor = Color(0xFFFF1744)) {
-                                    Text("$unacknowledgedAlertsCount")
-                                }
-                            }) {
-                                Icon(Icons.Default.NotificationsActive, contentDescription = "Alertas")
+                items.forEachIndexed { index, (label, icon, tag) ->
+                    NavigationBarItem(
+                        selected = currentTab == index,
+                        onClick = {
+                            if (index == 4 && currentTab == 4) othersRoute = null
+                            currentTab = index
+                        },
+                        icon = {
+                            if (index == 3 && hazardAlerts.isNotEmpty()) {
+                                BadgedBox(badge = {
+                                    Badge(containerColor = Color(hazardAlerts.maxBy { it.severity.rank }.severity.argb)) {
+                                        Text("${hazardAlerts.size}")
+                                    }
+                                }) { Icon(icon, contentDescription = label) }
+                            } else {
+                                Icon(icon, contentDescription = label)
                             }
-                        } else {
-                            Icon(Icons.Default.NotificationsActive, contentDescription = "Alertas")
-                        }
-                    },
-                    label = { Text("Alertas", fontSize = 11.sp) },
-                    colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = MaterialTheme.colorScheme.primary,
-                        selectedTextColor = MaterialTheme.colorScheme.primary,
-                        unselectedIconColor = Color(0xFF94A3B8),
-                        unselectedTextColor = Color(0xFF94A3B8),
-                        indicatorColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
-                    ),
-                    modifier = Modifier.testTag("nav_tab_alerts")
-                )
-
-                // Tab 5: Ajustes
-                NavigationBarItem(
-                    selected = currentTab == 5,
-                    onClick = { currentTab = 5 },
-                    icon = { Icon(Icons.Default.Tune, contentDescription = "Ajustes") },
-                    label = { Text("Ajustes", fontSize = 11.sp) },
-                    colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = MaterialTheme.colorScheme.primary,
-                        selectedTextColor = MaterialTheme.colorScheme.primary,
-                        unselectedIconColor = Color(0xFF94A3B8),
-                        unselectedTextColor = Color(0xFF94A3B8),
-                        indicatorColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
-                    ),
-                    modifier = Modifier.testTag("nav_tab_settings")
-                )
+                        },
+                        label = { Text(label, fontSize = 11.sp) },
+                        colors = NavigationBarItemDefaults.colors(
+                            selectedIconColor = MaterialTheme.colorScheme.primary,
+                            selectedTextColor = MaterialTheme.colorScheme.primary,
+                            unselectedIconColor = Color(0xFF94A3B8),
+                            unselectedTextColor = Color(0xFF94A3B8),
+                            indicatorColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                        ),
+                        modifier = Modifier.testTag(tag)
+                    )
+                }
             }
         }
     ) { innerPadding ->
@@ -182,15 +113,22 @@ fun MainAppScaffold(
                 label = "ScreenTransition"
             ) { targetIndex ->
                 when (targetIndex) {
-                    0 -> RadarMapScreen(viewModel = viewModel)
+                    0 -> RadarMapScreen(
+                        viewModel = viewModel,
+                        onOpenAlerts = { currentTab = 3 },
+                        onOpenFloods = { othersRoute = OthersRoute.FLOODS; currentTab = 4 },
+                        onOpenOthers = { othersRoute = null; currentTab = 4 }
+                    )
                     1 -> DailyForecastScreen(
                         viewModel = viewModel,
                         onNavigateToRadar = { currentTab = 0 }
                     )
                     2 -> AgroClimaScreen(viewModel = viewModel)
-                    3 -> HistoricalTrendsScreen(viewModel = viewModel)
-                    4 -> AlertsAndRegionsScreen(viewModel = viewModel)
-                    5 -> SettingsAndApiScreen(viewModel = viewModel)
+                    3 -> AlertsCenterScreen(
+                        viewModel = viewModel,
+                        onOpenFloods = { othersRoute = OthersRoute.FLOODS; currentTab = 4 }
+                    )
+                    4 -> OthersScreen(viewModel = viewModel, route = othersRoute, onRouteChange = { othersRoute = it })
                 }
             }
         }

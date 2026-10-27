@@ -18,3 +18,8 @@ local.properties
 debug.keystore
 .build-outputs/
 *.base64
+# Assinatura de release (NUNCA versionar)
+keystore.properties
+*.jks
+*.keystore
+keystore-credentials.txt

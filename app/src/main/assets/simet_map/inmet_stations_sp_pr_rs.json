@@ -1,0 +1,1487 @@
+[
+  {
+    "id": "B828",
+    "name": "ACEGUA",
+    "uf": "RS",
+    "lat": -31.87472221,
+    "lon": -54.11972221,
+    "alt": 271.0,
+    "status": "Pane"
+  },
+  {
+    "id": "B843",
+    "name": "AJURICABA",
+    "uf": "RS",
+    "lat": -28.22083332,
+    "lon": -53.6736111,
+    "alt": 416.0,
+    "status": "Pane"
+  },
+  {
+    "id": "A826",
+    "name": "ALEGRETE",
+    "uf": "RS",
+    "lat": -29.70916666,
+    "lon": -55.52555554,
+    "alt": 121.0,
+    "status": "Pane"
+  },
+  {
+    "id": "B847",
+    "name": "ALEGRETE (MARONNA)",
+    "uf": "RS",
+    "lat": -29.82138888,
+    "lon": -55.88722221,
+    "alt": 120.0,
+    "status": "Operante"
+  },
+  {
+    "id": "A736",
+    "name": "ARIRANHA",
+    "uf": "SP",
+    "lat": -21.13305554,
+    "lon": -48.84055555,
+    "alt": 525.44,
+    "status": "Operante"
+  },
+  {
+    "id": "A725",
+    "name": "AVARE",
+    "uf": "SP",
+    "lat": -23.10166666,
+    "lon": -48.9411111,
+    "alt": 776.36,
+    "status": "Operante"
+  },
+  {
+    "id": "A827",
+    "name": "BAGE",
+    "uf": "RS",
+    "lat": -31.34777777,
+    "lon": -54.01333333,
+    "alt": 226.19,
+    "status": "Operante"
+  },
+  {
+    "id": "B827",
+    "name": "BAGE - CENTRO",
+    "uf": "RS",
+    "lat": -31.30555555,
+    "lon": -54.01333333,
+    "alt": 226.2,
+    "status": "Operante"
+  },
+  {
+    "id": "A741",
+    "name": "BARRA BONITA",
+    "uf": "SP",
+    "lat": -22.4711111,
+    "lon": -48.5575,
+    "alt": 533.68,
+    "status": "Operante"
+  },
+  {
+    "id": "B848",
+    "name": "BARRA DO QUARAI",
+    "uf": "RS",
+    "lat": -30.11166666,
+    "lon": -57.3361111,
+    "alt": 91.0,
+    "status": "Pane"
+  },
+  {
+    "id": "A746",
+    "name": "BARRA DO TURVO",
+    "uf": "SP",
+    "lat": -24.96277777,
+    "lon": -48.41638888,
+    "alt": 659.89,
+    "status": "Operante"
+  },
+  {
+    "id": "A748",
+    "name": "BARRETOS",
+    "uf": "SP",
+    "lat": -20.55916666,
+    "lon": -48.54499999,
+    "alt": 534.36,
+    "status": "Operante"
+  },
+  {
+    "id": "A755",
+    "name": "BARUERI",
+    "uf": "SP",
+    "lat": -23.52388888,
+    "lon": -46.86944443,
+    "alt": 776.5,
+    "status": "Pane"
+  },
+  {
+    "id": "A705",
+    "name": "BAURU",
+    "uf": "SP",
+    "lat": -22.35805555,
+    "lon": -49.02888888,
+    "alt": 636.17,
+    "status": "Operante"
+  },
+  {
+    "id": "A764",
+    "name": "BEBEDOURO",
+    "uf": "SP",
+    "lat": -20.94805555,
+    "lon": -48.47138888,
+    "alt": 542.0,
+    "status": "Operante"
+  },
+  {
+    "id": "A840",
+    "name": "BENTO GONCALVES",
+    "uf": "RS",
+    "lat": -29.16444444,
+    "lon": -51.53416666,
+    "alt": 639.0,
+    "status": "Operante"
+  },
+  {
+    "id": "A765",
+    "name": "BERTIOGA",
+    "uf": "SP",
+    "lat": -23.84472221,
+    "lon": -46.14333333,
+    "alt": 5.0,
+    "status": "Operante"
+  },
+  {
+    "id": "B856",
+    "name": "BOM JESUS (INMET)",
+    "uf": "RS",
+    "lat": -28.66944443,
+    "lon": -50.44194444,
+    "alt": 1054.0,
+    "status": "Operante"
+  },
+  {
+    "id": "B857",
+    "name": "BOM JESUS - SANTO INACIO",
+    "uf": "RS",
+    "lat": -28.51388888,
+    "lon": -50.16777777,
+    "alt": 1132.0,
+    "status": "Operante"
+  },
+  {
+    "id": "A744",
+    "name": "BRAGANCA PAULISTA",
+    "uf": "SP",
+    "lat": -22.94916666,
+    "lon": -46.5261111,
+    "alt": 891.0,
+    "status": "Operante"
+  },
+  {
+    "id": "A773",
+    "name": "BURI",
+    "uf": "SP",
+    "lat": -23.59527777,
+    "lon": -48.52277777,
+    "alt": 629.0,
+    "status": "Operante"
+  },
+  {
+    "id": "A812",
+    "name": "CACAPAVA DO SUL",
+    "uf": "RS",
+    "lat": -30.54527777,
+    "lon": -53.46694443,
+    "alt": 420.82,
+    "status": "Operante"
+  },
+  {
+    "id": "B822",
+    "name": "CACHOEIRA DO SUL",
+    "uf": "RS",
+    "lat": -30.01833332,
+    "lon": -52.93888888,
+    "alt": 73.0,
+    "status": "Operante"
+  },
+  {
+    "id": "A769",
+    "name": "CACHOEIRA PAULISTA",
+    "uf": "SP",
+    "lat": -22.68888888,
+    "lon": -45.00555555,
+    "alt": 586.0,
+    "status": "Operante"
+  },
+  {
+    "id": "B808",
+    "name": "CACHOEIRINHA",
+    "uf": "RS",
+    "lat": -29.95138888,
+    "lon": -51.12416666,
+    "alt": 72.0,
+    "status": "Operante"
+  },
+  {
+    "id": "A838",
+    "name": "CAMAQUA",
+    "uf": "RS",
+    "lat": -30.80805555,
+    "lon": -51.83416666,
+    "alt": 92.3,
+    "status": "Operante"
+  },
+  {
+    "id": "A897",
+    "name": "CAMBARA DO SUL",
+    "uf": "RS",
+    "lat": -29.04916666,
+    "lon": -50.14972221,
+    "alt": 1017.0,
+    "status": "Pane"
+  },
+  {
+    "id": "B803",
+    "name": "CAMPINA DA LAGOA",
+    "uf": "PR",
+    "lat": -24.57083332,
+    "lon": -52.80027777,
+    "alt": 598.0,
+    "status": "Pane"
+  },
+  {
+    "id": "A884",
+    "name": "CAMPO BOM",
+    "uf": "RS",
+    "lat": -29.67416666,
+    "lon": -51.06416666,
+    "alt": 23.35,
+    "status": "Operante"
+  },
+  {
+    "id": "A706",
+    "name": "CAMPOS DO JORDAO",
+    "uf": "SP",
+    "lat": -22.75027777,
+    "lon": -45.60388888,
+    "alt": 1662.95,
+    "status": "Operante"
+  },
+  {
+    "id": "A879",
+    "name": "CANELA",
+    "uf": "RS",
+    "lat": -29.36888888,
+    "lon": -50.82722221,
+    "alt": 830.93,
+    "status": "Operante"
+  },
+  {
+    "id": "A811",
+    "name": "CANGUCU",
+    "uf": "RS",
+    "lat": -31.40333333,
+    "lon": -52.70083333,
+    "alt": 446.81,
+    "status": "Operante"
+  },
+  {
+    "id": "B832",
+    "name": "CAPAO DA CANOA",
+    "uf": "RS",
+    "lat": -29.68527777,
+    "lon": -49.99305555,
+    "alt": 0.0,
+    "status": "Operante"
+  },
+  {
+    "id": "A887",
+    "name": "CAPAO DO LEAO (PELOTAS)",
+    "uf": "RS",
+    "lat": -31.8025,
+    "lon": -52.40722222,
+    "alt": 13.0,
+    "status": "Operante"
+  },
+  {
+    "id": "B842",
+    "name": "CARAZINHO",
+    "uf": "RS",
+    "lat": -28.32333332,
+    "lon": -52.81444444,
+    "alt": 581.0,
+    "status": "Operante"
+  },
+  {
+    "id": "A738",
+    "name": "CASA BRANCA",
+    "uf": "SP",
+    "lat": -21.78055554,
+    "lon": -47.07527777,
+    "alt": 734.15,
+    "status": "Operante"
+  },
+  {
+    "id": "B858",
+    "name": "CASCA",
+    "uf": "RS",
+    "lat": -28.56361111,
+    "lon": -51.96916666,
+    "alt": 602.0,
+    "status": "Pane"
+  },
+  {
+    "id": "A819",
+    "name": "CASTRO",
+    "uf": "PR",
+    "lat": -24.77999999,
+    "lon": -50.04638888,
+    "alt": 1016.0,
+    "status": "Operante"
+  },
+  {
+    "id": "B818",
+    "name": "CAXIAS DO SUL - AEROPORTO",
+    "uf": "RS",
+    "lat": -29.1961111,
+    "lon": -51.18638888,
+    "alt": 756.0,
+    "status": "Operante"
+  },
+  {
+    "id": "B817",
+    "name": "CAXIAS DO SUL - CRIUVA",
+    "uf": "RS",
+    "lat": -28.87416666,
+    "lon": -50.97555554,
+    "alt": 857.0,
+    "status": "Operante"
+  },
+  {
+    "id": "B812",
+    "name": "CHARQUEADAS",
+    "uf": "RS",
+    "lat": -29.96555555,
+    "lon": -51.62555554,
+    "alt": 23.0,
+    "status": "Operante"
+  },
+  {
+    "id": "A869",
+    "name": "CIDADE GAUCHA",
+    "uf": "PR",
+    "lat": -23.35916666,
+    "lon": -52.93194443,
+    "alt": 365.79,
+    "status": "Operante"
+  },
+  {
+    "id": "A876",
+    "name": "CLEVELANDIA",
+    "uf": "PR",
+    "lat": -26.41722221,
+    "lon": -52.3486111,
+    "alt": 966.06,
+    "status": "Operante"
+  },
+  {
+    "id": "B806",
+    "name": "COLOMBO",
+    "uf": "PR",
+    "lat": -25.32249999,
+    "lon": -49.15777777,
+    "alt": 950.0,
+    "status": "Operante"
+  },
+  {
+    "id": "A853",
+    "name": "CRUZ ALTA",
+    "uf": "RS",
+    "lat": -28.60333333,
+    "lon": -53.6736111,
+    "alt": 426.69,
+    "status": "Operante"
+  },
+  {
+    "id": "B833",
+    "name": "CRUZ ALTA ( CENTRO)",
+    "uf": "RS",
+    "lat": -28.62583332,
+    "lon": -53.61361111,
+    "alt": 475.0,
+    "status": "Operante"
+  },
+  {
+    "id": "A807",
+    "name": "CURITIBA",
+    "uf": "PR",
+    "lat": -25.4486111,
+    "lon": -49.23055554,
+    "alt": 922.91,
+    "status": "Operante"
+  },
+  {
+    "id": "A849",
+    "name": "DIAMANTE DO NORTE",
+    "uf": "PR",
+    "lat": -22.63944444,
+    "lon": -52.89027777,
+    "alt": 368.22,
+    "status": "Operante"
+  },
+  {
+    "id": "B852",
+    "name": "DILERMANDO DE AGUIAR",
+    "uf": "RS",
+    "lat": -29.72555554,
+    "lon": -54.18805555,
+    "alt": 143.0,
+    "status": "Operante"
+  },
+  {
+    "id": "A843",
+    "name": "DOIS VIZINHOS",
+    "uf": "PR",
+    "lat": -25.69916666,
+    "lon": -53.09527777,
+    "alt": 545.95,
+    "status": "Operante"
+  },
+  {
+    "id": "A881",
+    "name": "DOM PEDRITO",
+    "uf": "RS",
+    "lat": -31.0025,
+    "lon": -54.61805554,
+    "alt": 150.0,
+    "status": "Pane"
+  },
+  {
+    "id": "A762",
+    "name": "DRACENA",
+    "uf": "SP",
+    "lat": -21.45777777,
+    "lon": -51.55222222,
+    "alt": 383.0,
+    "status": "Pane"
+  },
+  {
+    "id": "A893",
+    "name": "ENCRUZILHADA DO SUL",
+    "uf": "RS",
+    "lat": -30.54305555,
+    "lon": -52.52472221,
+    "alt": 427.75,
+    "status": "Operante"
+  },
+  {
+    "id": "A828",
+    "name": "ERECHIM",
+    "uf": "RS",
+    "lat": -27.65777777,
+    "lon": -52.30583333,
+    "alt": 777.08,
+    "status": "Operante"
+  },
+  {
+    "id": "B845",
+    "name": "ESPERANCA DO SUL",
+    "uf": "RS",
+    "lat": -27.37416666,
+    "lon": -53.96916666,
+    "alt": 409.0,
+    "status": "Pane"
+  },
+  {
+    "id": "B854",
+    "name": "FAXINAL DO SOTURNO",
+    "uf": "RS",
+    "lat": -29.58749999,
+    "lon": -53.42749999,
+    "alt": 70.0,
+    "status": "Operante"
+  },
+  {
+    "id": "A846",
+    "name": "FOZ DO IGUACU",
+    "uf": "PR",
+    "lat": -25.60194444,
+    "lon": -54.48305554,
+    "alt": 235.09,
+    "status": "Pane"
+  },
+  {
+    "id": "A708",
+    "name": "FRANCA",
+    "uf": "SP",
+    "lat": -20.58444444,
+    "lon": -47.38249999,
+    "alt": 1002.74,
+    "status": "Operante"
+  },
+  {
+    "id": "A854",
+    "name": "FREDERICO WESTPHALEN",
+    "uf": "RS",
+    "lat": -27.39555555,
+    "lon": -53.42944443,
+    "alt": 489.42,
+    "status": "Operante"
+  },
+  {
+    "id": "B834",
+    "name": "GARRUCHOS",
+    "uf": "RS",
+    "lat": -28.19694444,
+    "lon": -55.62972221,
+    "alt": 0.0,
+    "status": "Operante"
+  },
+  {
+    "id": "A875",
+    "name": "GENERAL CARNEIRO",
+    "uf": "PR",
+    "lat": -26.3986111,
+    "lon": -51.35361111,
+    "alt": 1009.01,
+    "status": "Operante"
+  },
+  {
+    "id": "A825",
+    "name": "GOIOERE",
+    "uf": "PR",
+    "lat": -24.18388888,
+    "lon": -53.04888888,
+    "alt": 481.0,
+    "status": "Operante"
+  },
+  {
+    "id": "B826",
+    "name": "HERVAL",
+    "uf": "RS",
+    "lat": -32.01277777,
+    "lon": -53.40305555,
+    "alt": 331.0,
+    "status": "Operante"
+  },
+  {
+    "id": "A883",
+    "name": "IBIRUBA",
+    "uf": "RS",
+    "lat": -28.65333333,
+    "lon": -53.11194444,
+    "alt": 455.27,
+    "status": "Operante"
+  },
+  {
+    "id": "A737",
+    "name": "IBITINGA",
+    "uf": "SP",
+    "lat": -21.85555555,
+    "lon": -48.79972221,
+    "alt": 496.75,
+    "status": "Operante"
+  },
+  {
+    "id": "A824",
+    "name": "ICARAIMA",
+    "uf": "PR",
+    "lat": -23.39027777,
+    "lon": -53.63583333,
+    "alt": 381.29,
+    "status": "Pane"
+  },
+  {
+    "id": "A712",
+    "name": "IGUAPE",
+    "uf": "SP",
+    "lat": -24.67166666,
+    "lon": -47.54583333,
+    "alt": 2.7,
+    "status": "Operante"
+  },
+  {
+    "id": "A823",
+    "name": "INACIO MARTINS",
+    "uf": "PR",
+    "lat": -25.56777777,
+    "lon": -51.07805554,
+    "alt": 1208.85,
+    "status": "Pane"
+  },
+  {
+    "id": "A713",
+    "name": "IPERO",
+    "uf": "SP",
+    "lat": -23.4261111,
+    "lon": -47.58555555,
+    "alt": 609.33,
+    "status": "Operante"
+  },
+  {
+    "id": "B849",
+    "name": "ITACURUBI",
+    "uf": "RS",
+    "lat": -28.69916666,
+    "lon": -55.38055554,
+    "alt": 148.0,
+    "status": "Operante"
+  },
+  {
+    "id": "A714",
+    "name": "ITAPEVA",
+    "uf": "SP",
+    "lat": -23.98194443,
+    "lon": -48.88583333,
+    "alt": 743.33,
+    "status": "Operante"
+  },
+  {
+    "id": "A739",
+    "name": "ITAPIRA",
+    "uf": "SP",
+    "lat": -22.415,
+    "lon": -46.80527777,
+    "alt": 634.89,
+    "status": "Operante"
+  },
+  {
+    "id": "B850",
+    "name": "ITAQUI",
+    "uf": "RS",
+    "lat": -29.15555555,
+    "lon": -56.55555555,
+    "alt": 71.0,
+    "status": "Operante"
+  },
+  {
+    "id": "A753",
+    "name": "ITUVERAVA",
+    "uf": "SP",
+    "lat": -20.35972222,
+    "lon": -47.77527777,
+    "alt": 610.58,
+    "status": "Operante"
+  },
+  {
+    "id": "A818",
+    "name": "IVAI",
+    "uf": "PR",
+    "lat": -25.01083333,
+    "lon": -50.85388888,
+    "alt": 803.58,
+    "status": "Pane"
+  },
+  {
+    "id": "A836",
+    "name": "JAGUARAO",
+    "uf": "RS",
+    "lat": -32.53472221,
+    "lon": -53.37583332,
+    "alt": 31.48,
+    "status": "Operante"
+  },
+  {
+    "id": "A733",
+    "name": "JALES",
+    "uf": "SP",
+    "lat": -20.165,
+    "lon": -50.59499999,
+    "alt": 460.44,
+    "status": "Operante"
+  },
+  {
+    "id": "A871",
+    "name": "JAPIRA",
+    "uf": "PR",
+    "lat": -23.77333332,
+    "lon": -50.18055554,
+    "alt": 692.88,
+    "status": "Operante"
+  },
+  {
+    "id": "A821",
+    "name": "JOAQUIM TAVORA",
+    "uf": "PR",
+    "lat": -23.50527777,
+    "lon": -49.94638888,
+    "alt": 512.67,
+    "status": "Operante"
+  },
+  {
+    "id": "B835",
+    "name": "JOIA",
+    "uf": "RS",
+    "lat": -28.65027777,
+    "lon": -54.11277777,
+    "alt": 0.0,
+    "status": "Operante"
+  },
+  {
+    "id": "A735",
+    "name": "JOSE BONIFACIO",
+    "uf": "SP",
+    "lat": -21.08555555,
+    "lon": -49.92027777,
+    "alt": 408.35,
+    "status": "Operante"
+  },
+  {
+    "id": "A844",
+    "name": "LAGOA VERMELHA",
+    "uf": "RS",
+    "lat": -28.22249999,
+    "lon": -51.51277777,
+    "alt": 833.83,
+    "status": "Operante"
+  },
+  {
+    "id": "B804",
+    "name": "LARANJEIRAS DO SUL",
+    "uf": "PR",
+    "lat": -25.37138888,
+    "lon": -52.40083333,
+    "alt": 889.0,
+    "status": "Operante"
+  },
+  {
+    "id": "B853",
+    "name": "LAVRAS DO SUL",
+    "uf": "RS",
+    "lat": -30.7886111,
+    "lon": -53.89416666,
+    "alt": 390.0,
+    "status": "Operante"
+  },
+  {
+    "id": "A727",
+    "name": "LINS",
+    "uf": "SP",
+    "lat": -21.66611111,
+    "lon": -49.73472221,
+    "alt": 460.65,
+    "status": "Operante"
+  },
+  {
+    "id": "B851",
+    "name": "MACAMBARA",
+    "uf": "RS",
+    "lat": -29.15527777,
+    "lon": -56.1786111,
+    "alt": 95.0,
+    "status": "Operante"
+  },
+  {
+    "id": "A820",
+    "name": "MAL. CANDIDO RONDON",
+    "uf": "PR",
+    "lat": -24.53333333,
+    "lon": -54.01916666,
+    "alt": 392.07,
+    "status": "Operante"
+  },
+  {
+    "id": "A763",
+    "name": "MARILIA",
+    "uf": "SP",
+    "lat": -22.23527777,
+    "lon": -49.965,
+    "alt": 660.0,
+    "status": "Operante"
+  },
+  {
+    "id": "A835",
+    "name": "MARINGA",
+    "uf": "PR",
+    "lat": -23.40527777,
+    "lon": -51.93277777,
+    "alt": 548.51,
+    "status": "Operante"
+  },
+  {
+    "id": "B813",
+    "name": "MINAS DO LEAO",
+    "uf": "RS",
+    "lat": -30.12444443,
+    "lon": -52.05083333,
+    "alt": 54.0,
+    "status": "Pane"
+  },
+  {
+    "id": "B814",
+    "name": "MONTENEGRO",
+    "uf": "RS",
+    "lat": -29.75861111,
+    "lon": -51.4361111,
+    "alt": 15.0,
+    "status": "Operante"
+  },
+  {
+    "id": "A873",
+    "name": "MORRETES",
+    "uf": "PR",
+    "lat": -25.50888888,
+    "lon": -48.80861111,
+    "alt": 50.31,
+    "status": "Operante"
+  },
+  {
+    "id": "B862",
+    "name": "MOSTARDAS - BACUPARI",
+    "uf": "RS",
+    "lat": -30.50611111,
+    "lon": -50.41999999,
+    "alt": 20.0,
+    "status": "Operante"
+  },
+  {
+    "id": "B859",
+    "name": "MUCUM",
+    "uf": "RS",
+    "lat": -29.15361111,
+    "lon": -51.86527777,
+    "alt": 197.0,
+    "status": "Operante"
+  },
+  {
+    "id": "B846",
+    "name": "NONOAI",
+    "uf": "RS",
+    "lat": -27.35861111,
+    "lon": -52.77805554,
+    "alt": 546.0,
+    "status": "Operante"
+  },
+  {
+    "id": "A842",
+    "name": "NOVA FATIMA",
+    "uf": "PR",
+    "lat": -23.41527777,
+    "lon": -50.57777777,
+    "alt": 664.31,
+    "status": "Operante"
+  },
+  {
+    "id": "A822",
+    "name": "NOVA TEBAS",
+    "uf": "PR",
+    "lat": -24.43388888,
+    "lon": -51.95388888,
+    "alt": 660.0,
+    "status": "Operante"
+  },
+  {
+    "id": "A716",
+    "name": "OURINHOS",
+    "uf": "SP",
+    "lat": -23.00055555,
+    "lon": -49.84333333,
+    "alt": 500.0,
+    "status": "Pane"
+  },
+  {
+    "id": "B836",
+    "name": "PALMARES DO SUL",
+    "uf": "RS",
+    "lat": -30.24916666,
+    "lon": -50.50916666,
+    "alt": 4.0,
+    "status": "Operante"
+  },
+  {
+    "id": "A856",
+    "name": "PALMEIRA DAS MISSOES",
+    "uf": "RS",
+    "lat": -27.92027777,
+    "lon": -53.31805554,
+    "alt": 614.11,
+    "status": "Operante"
+  },
+  {
+    "id": "A850",
+    "name": "PARANAPOEMA",
+    "uf": "PR",
+    "lat": -22.65833333,
+    "lon": -52.13444444,
+    "alt": 308.7,
+    "status": "Operante"
+  },
+  {
+    "id": "B810",
+    "name": "PARQUE ELDORADO",
+    "uf": "RS",
+    "lat": -30.09666666,
+    "lon": -51.67388888,
+    "alt": 50.0,
+    "status": "Pane"
+  },
+  {
+    "id": "A839",
+    "name": "PASSO FUNDO",
+    "uf": "RS",
+    "lat": -28.22666666,
+    "lon": -52.40361111,
+    "alt": 680.67,
+    "status": "Operante"
+  },
+  {
+    "id": "B823",
+    "name": "PINHEIRO MACHADO",
+    "uf": "RS",
+    "lat": -31.57472221,
+    "lon": -53.38833333,
+    "alt": 419.0,
+    "status": "Operante"
+  },
+  {
+    "id": "A726",
+    "name": "PIRACICABA",
+    "uf": "SP",
+    "lat": -22.70305555,
+    "lon": -47.62333332,
+    "alt": 566.46,
+    "status": "Operante"
+  },
+  {
+    "id": "A855",
+    "name": "PLANALTO",
+    "uf": "PR",
+    "lat": -25.72194443,
+    "lon": -53.74805555,
+    "alt": 399.1,
+    "status": "Operante"
+  },
+  {
+    "id": "B825",
+    "name": "PORTO ALEGRE - BELEM NOVO",
+    "uf": "RS",
+    "lat": -30.1861111,
+    "lon": -51.17833332,
+    "alt": 3.3,
+    "status": "Operante"
+  },
+  {
+    "id": "A801",
+    "name": "PORTO ALEGRE - JARDIM BOTANICO",
+    "uf": "RS",
+    "lat": -30.05361111,
+    "lon": -51.17472221,
+    "alt": 41.18,
+    "status": "Operante"
+  },
+  {
+    "id": "B837",
+    "name": "PORTO XAVIER",
+    "uf": "RS",
+    "lat": -27.90277777,
+    "lon": -55.16722221,
+    "alt": 0.0,
+    "status": "Operante"
+  },
+  {
+    "id": "A747",
+    "name": "PRADOPOLIS",
+    "uf": "SP",
+    "lat": -21.33833333,
+    "lon": -48.11388888,
+    "alt": 544.0,
+    "status": "Operante"
+  },
+  {
+    "id": "A707",
+    "name": "PRESIDENTE PRUDENTE",
+    "uf": "SP",
+    "lat": -22.11999999,
+    "lon": -51.40861111,
+    "alt": 431.92,
+    "status": "Operante"
+  },
+  {
+    "id": "A831",
+    "name": "QUARAI",
+    "uf": "RS",
+    "lat": -30.3686111,
+    "lon": -56.43722221,
+    "alt": 103.0,
+    "status": "Operante"
+  },
+  {
+    "id": "A718",
+    "name": "RANCHARIA",
+    "uf": "SP",
+    "lat": -22.37277777,
+    "lon": -50.97472221,
+    "alt": 398.75,
+    "status": "Operante"
+  },
+  {
+    "id": "A766",
+    "name": "REGISTRO",
+    "uf": "SP",
+    "lat": -24.53305554,
+    "lon": -47.86416666,
+    "alt": 35.0,
+    "status": "Pane"
+  },
+  {
+    "id": "B860",
+    "name": "RELVADO",
+    "uf": "RS",
+    "lat": -29.10444444,
+    "lon": -52.05277777,
+    "alt": 301.0,
+    "status": "Operante"
+  },
+  {
+    "id": "A802",
+    "name": "RIO GRANDE",
+    "uf": "RS",
+    "lat": -32.07888888,
+    "lon": -52.16777777,
+    "alt": 4.92,
+    "status": "Operante"
+  },
+  {
+    "id": "A813",
+    "name": "RIO PARDO",
+    "uf": "RS",
+    "lat": -29.87222221,
+    "lon": -52.38194443,
+    "alt": 106.99,
+    "status": "Operante"
+  },
+  {
+    "id": "B819",
+    "name": "ROLANTE",
+    "uf": "RS",
+    "lat": -29.65583333,
+    "lon": -50.61805554,
+    "alt": 69.0,
+    "status": "Operante"
+  },
+  {
+    "id": "B855",
+    "name": "Rosario do Sul",
+    "uf": "RS",
+    "lat": -30.25972222,
+    "lon": -54.90222222,
+    "alt": 115.0,
+    "status": "Operante"
+  },
+  {
+    "id": "B838",
+    "name": "SALTO DO JACUI",
+    "uf": "RS",
+    "lat": -29.09638888,
+    "lon": -53.2125,
+    "alt": 322.0,
+    "status": "Operante"
+  },
+  {
+    "id": "A803",
+    "name": "SANTA MARIA",
+    "uf": "RS",
+    "lat": -29.72499999,
+    "lon": -53.72055554,
+    "alt": 105.0,
+    "status": "Operante"
+  },
+  {
+    "id": "B816",
+    "name": "SANTA MARIA DO HERVAL",
+    "uf": "RS",
+    "lat": -29.47916666,
+    "lon": -51.01333333,
+    "alt": 650.0,
+    "status": "Operante"
+  },
+  {
+    "id": "A810",
+    "name": "SANTA ROSA",
+    "uf": "RS",
+    "lat": -27.84805555,
+    "lon": -54.45222222,
+    "alt": 329.0,
+    "status": "Operante"
+  },
+  {
+    "id": "B830",
+    "name": "SANTA VITORIA DO PALMAR (CENTRO)",
+    "uf": "RS",
+    "lat": -33.53166666,
+    "lon": -53.35027777,
+    "alt": 29.0,
+    "status": "Operante"
+  },
+  {
+    "id": "B829",
+    "name": "SANTA VITORIA DO PALMAR (RESERVA DO TAIM)",
+    "uf": "RS",
+    "lat": -32.83583333,
+    "lon": -52.6436111,
+    "alt": 2.0,
+    "status": "Pane"
+  },
+  {
+    "id": "A899",
+    "name": "SANTA VITORIA DO PALMAR - BARRA DO CHUI",
+    "uf": "RS",
+    "lat": -33.74222221,
+    "lon": -53.37222221,
+    "alt": 7.41,
+    "status": "Operante"
+  },
+  {
+    "id": "B821",
+    "name": "SANTANA DA BOA VISTA",
+    "uf": "RS",
+    "lat": -30.85861111,
+    "lon": -53.15555555,
+    "alt": 138.0,
+    "status": "Pane"
+  },
+  {
+    "id": "A804",
+    "name": "SANTANA DO LIVRAMENTO",
+    "uf": "RS",
+    "lat": -30.75055555,
+    "lon": -55.40138888,
+    "alt": 196.0,
+    "status": "Operante"
+  },
+  {
+    "id": "A833",
+    "name": "SANTIAGO",
+    "uf": "RS",
+    "lat": -29.19166666,
+    "lon": -54.88555555,
+    "alt": 390.03,
+    "status": "Operante"
+  },
+  {
+    "id": "B844",
+    "name": "SANTO ANGELO",
+    "uf": "RS",
+    "lat": -28.27805554,
+    "lon": -54.27388888,
+    "alt": 270.0,
+    "status": "Operante"
+  },
+  {
+    "id": "B839",
+    "name": "SANTO ANTONIO DA PATRULHA",
+    "uf": "RS",
+    "lat": -29.81611111,
+    "lon": -50.53333333,
+    "alt": 47.0,
+    "status": "Operante"
+  },
+  {
+    "id": "A805",
+    "name": "SANTO AUGUSTO",
+    "uf": "RS",
+    "lat": -27.85444444,
+    "lon": -53.7911111,
+    "alt": 489.67,
+    "status": "Operante"
+  },
+  {
+    "id": "A830",
+    "name": "SAO BORJA",
+    "uf": "RS",
+    "lat": -28.65,
+    "lon": -56.01638888,
+    "alt": 79.0,
+    "status": "Operante"
+  },
+  {
+    "id": "A711",
+    "name": "SAO CARLOS",
+    "uf": "SP",
+    "lat": -21.98027777,
+    "lon": -47.88388888,
+    "alt": 859.29,
+    "status": "Operante"
+  },
+  {
+    "id": "B820",
+    "name": "SAO FRANCISCO DE PAULA",
+    "uf": "RS",
+    "lat": -29.44222221,
+    "lon": -50.56027777,
+    "alt": 886.0,
+    "status": "Operante"
+  },
+  {
+    "id": "A832",
+    "name": "SAO GABRIEL",
+    "uf": "RS",
+    "lat": -30.34138888,
+    "lon": -54.31083333,
+    "alt": 114.89,
+    "status": "Operante"
+  },
+  {
+    "id": "B861",
+    "name": "SAO JOSE DO OURO",
+    "uf": "RS",
+    "lat": -27.77249999,
+    "lon": -51.58666666,
+    "alt": 803.0,
+    "status": "Operante"
+  },
+  {
+    "id": "A829",
+    "name": "SAO JOSE DOS AUSENTES",
+    "uf": "RS",
+    "lat": -28.7486111,
+    "lon": -50.05777777,
+    "alt": 1228.59,
+    "status": "Operante"
+  },
+  {
+    "id": "B831",
+    "name": "SAO LOURENCO DO SUL",
+    "uf": "RS",
+    "lat": -31.34055555,
+    "lon": -52.01083333,
+    "alt": 3.0,
+    "status": "Operante"
+  },
+  {
+    "id": "A740",
+    "name": "SAO LUIZ DO PARAITINGA",
+    "uf": "SP",
+    "lat": -23.22833332,
+    "lon": -45.41694443,
+    "alt": 874.0,
+    "status": "Operante"
+  },
+  {
+    "id": "A852",
+    "name": "SAO LUIZ GONZAGA",
+    "uf": "RS",
+    "lat": -28.41722221,
+    "lon": -54.9625,
+    "alt": 245.5,
+    "status": "Operante"
+  },
+  {
+    "id": "A874",
+    "name": "SAO MATEUS DO SUL",
+    "uf": "PR",
+    "lat": -25.83555555,
+    "lon": -50.36888888,
+    "alt": 780.21,
+    "status": "Operante"
+  },
+  {
+    "id": "A715",
+    "name": "SAO MIGUEL ARCANJO",
+    "uf": "SP",
+    "lat": -23.89083333,
+    "lon": -47.99916666,
+    "alt": 710.0,
+    "status": "Operante"
+  },
+  {
+    "id": "A771",
+    "name": "SAO PAULO - INTERLAGOS",
+    "uf": "SP",
+    "lat": -23.72444443,
+    "lon": -46.67749999,
+    "alt": 771.0,
+    "status": "Operante"
+  },
+  {
+    "id": "A701",
+    "name": "SAO PAULO - MIRANTE",
+    "uf": "SP",
+    "lat": -23.4962888,
+    "lon": -46.6200666,
+    "alt": 785.64,
+    "status": "Operante"
+  },
+  {
+    "id": "A770",
+    "name": "SAO SIMAO",
+    "uf": "SP",
+    "lat": -21.46111111,
+    "lon": -47.57944443,
+    "alt": 620.0,
+    "status": "Operante"
+  },
+  {
+    "id": "A889",
+    "name": "SAO VICENTE DO SUL",
+    "uf": "RS",
+    "lat": -29.70222222,
+    "lon": -54.69444444,
+    "alt": 134.0,
+    "status": "Operante"
+  },
+  {
+    "id": "B809",
+    "name": "SAPUCAIA DO SUL",
+    "uf": "RS",
+    "lat": -29.81388888,
+    "lon": -51.15666666,
+    "alt": 23.0,
+    "status": "Operante"
+  },
+  {
+    "id": "A894",
+    "name": "SERAFINA CORREA",
+    "uf": "RS",
+    "lat": -28.70472222,
+    "lon": -51.87083332,
+    "alt": 485.29,
+    "status": "Operante"
+  },
+  {
+    "id": "B811",
+    "name": "SERTAO SANTANA",
+    "uf": "RS",
+    "lat": -30.49416666,
+    "lon": -51.66333333,
+    "alt": 116.0,
+    "status": "Operante"
+  },
+  {
+    "id": "B840",
+    "name": "SOBRADINHO",
+    "uf": "RS",
+    "lat": -29.39833333,
+    "lon": -53.01361111,
+    "alt": 379.0,
+    "status": "Operante"
+  },
+  {
+    "id": "A837",
+    "name": "SOLEDADE",
+    "uf": "RS",
+    "lat": -28.85916666,
+    "lon": -52.54249999,
+    "alt": 660.44,
+    "status": "Operante"
+  },
+  {
+    "id": "B815",
+    "name": "TAQUARI",
+    "uf": "RS",
+    "lat": -29.79166666,
+    "lon": -51.82749999,
+    "alt": 53.0,
+    "status": "Operante"
+  },
+  {
+    "id": "A728",
+    "name": "TAUBATE",
+    "uf": "SP",
+    "lat": -23.04166666,
+    "lon": -45.52083332,
+    "alt": 582.26,
+    "status": "Operante"
+  },
+  {
+    "id": "A878",
+    "name": "TAVARES - FAROL DE MOSTARDAS",
+    "uf": "RS",
+    "lat": -31.24833333,
+    "lon": -50.90638888,
+    "alt": 3.82,
+    "status": "Pane"
+  },
+  {
+    "id": "A882",
+    "name": "TEUTONIA",
+    "uf": "RS",
+    "lat": -29.44916666,
+    "lon": -51.82333332,
+    "alt": 81.0,
+    "status": "Operante"
+  },
+  {
+    "id": "B841",
+    "name": "TORRES-AEROPORTO",
+    "uf": "RS",
+    "lat": -29.41361111,
+    "lon": -49.80361111,
+    "alt": 0.0,
+    "status": "Operante"
+  },
+  {
+    "id": "A834",
+    "name": "TRAMANDAI",
+    "uf": "RS",
+    "lat": -30.01027777,
+    "lon": -50.13583333,
+    "alt": 4.56,
+    "status": "Operante"
+  },
+  {
+    "id": "A768",
+    "name": "TUPA",
+    "uf": "SP",
+    "lat": -21.92722221,
+    "lon": -50.49027777,
+    "alt": 498.0,
+    "status": "Operante"
+  },
+  {
+    "id": "A886",
+    "name": "TUPANCIRETA",
+    "uf": "RS",
+    "lat": -29.08944444,
+    "lon": -53.82666666,
+    "alt": 462.0,
+    "status": "Operante"
+  },
+  {
+    "id": "A809",
+    "name": "URUGUAIANA",
+    "uf": "RS",
+    "lat": -29.83999999,
+    "lon": -57.08194443,
+    "alt": 74.29,
+    "status": "Operante"
+  },
+  {
+    "id": "A880",
+    "name": "VACARIA",
+    "uf": "RS",
+    "lat": -28.51361111,
+    "lon": -50.88277777,
+    "alt": 969.89,
+    "status": "Operante"
+  },
+  {
+    "id": "A734",
+    "name": "VALPARAISO",
+    "uf": "SP",
+    "lat": -21.31916666,
+    "lon": -50.93027777,
+    "alt": 381.9,
+    "status": "Pane"
+  },
+  {
+    "id": "A872",
+    "name": "VENTANIA",
+    "uf": "PR",
+    "lat": -24.28027777,
+    "lon": -50.21027777,
+    "alt": 1093.41,
+    "status": "Operante"
+  },
+  {
+    "id": "B824",
+    "name": "VIAMAO",
+    "uf": "RS",
+    "lat": -30.11527777,
+    "lon": -50.92916666,
+    "alt": 65.0,
+    "status": "Operante"
+  }
+]

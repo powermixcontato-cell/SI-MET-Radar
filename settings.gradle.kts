@@ -22,6 +22,6 @@ dependencyResolutionManagement {
   }
 }
 
-rootProject.name = "SI Met RADAR"
+rootProject.name = "SIST MET Radar & Chuva"
 
 include(":app")

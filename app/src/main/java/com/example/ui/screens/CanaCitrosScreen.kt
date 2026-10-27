@@ -1,5 +1,7 @@
 package com.example.ui.screens
 
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -21,6 +23,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Card
@@ -54,6 +57,8 @@ import com.example.data.local.entity.WeatherStationEntity
 import com.example.data.repository.AgroLoadState
 import com.example.data.repository.AgroSeries
 import com.example.ui.components.RainAccumulationCard
+import com.example.ui.components.FaoEtcCard
+import com.example.ui.components.SoilMetricsCard
 import com.example.domain.CanaCitrosIndices
 import com.example.domain.CanaCitrosIndices.br
 import com.example.domain.CanaCitrosIndices.fmt
@@ -67,13 +72,13 @@ private val CitrusOrange = Color(0xFFF59E0B)
 
 @Composable
 fun CanaCitrosScreen(viewModel: WeatherViewModel) {
-    val station by viewModel.currentStation.collectAsState()
-    val series by viewModel.currentAgroSeries.collectAsState()
-    val alerts by viewModel.allAlerts.collectAsState()
-    val stations by viewModel.allStations.collectAsState()
-    val refreshing by viewModel.isRefreshing.collectAsState()
-    val loadState by viewModel.currentAgroLoadState.collectAsState()
-    val selectedId by viewModel.selectedStationId.collectAsState()
+    val station by viewModel.currentStation.collectAsStateWithLifecycle()
+    val series by viewModel.currentAgroSeries.collectAsStateWithLifecycle()
+    val alerts by viewModel.allAlerts.collectAsStateWithLifecycle()
+    val stations by viewModel.allStations.collectAsStateWithLifecycle()
+    val refreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
+    val loadState by viewModel.currentAgroLoadState.collectAsStateWithLifecycle()
+    val selectedId by viewModel.selectedStationId.collectAsStateWithLifecycle()
     // Carrega a série ao abrir a aba e ao trocar de cidade (antes só aparecia após "Atualizar")
     LaunchedEffect(selectedId) { viewModel.ensureAgroSeriesLoaded() }
     CanaCitrosContent(
@@ -102,7 +107,11 @@ fun CanaCitrosContent(
     onRefresh: () -> Unit,
     modifier: Modifier = Modifier,
     loadState: AgroLoadState = AgroLoadState.Idle,
-    onRetry: () -> Unit = onRefresh
+    onRetry: () -> Unit = onRefresh,
+    /** v5.1 (aba Agro): seletor de estado e botão de PDF no cabeçalho. */
+    stateSelector: (@Composable () -> Unit)? = null,
+    onExportPdf: (() -> Unit)? = null,
+    alertsScopeLabel: String = "SP"
 ) {
     val activeAlerts = remember(alerts) {
         alerts.filter { !it.isAcknowledged }.sortedBy { severityRank(it.severity) }
@@ -125,11 +134,17 @@ fun CanaCitrosContent(
                             fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
+                    if (onExportPdf != null) {
+                        IconButton(onClick = onExportPdf, modifier = Modifier.size(40.dp).testTag("btn_pdf_agro_topbar")) {
+                            Icon(Icons.Default.PictureAsPdf, contentDescription = "Boletim agro em PDF", tint = CanaGreen)
+                        }
+                    }
                     IconButton(onClick = onRefresh, enabled = !isRefreshing, modifier = Modifier.size(40.dp).testTag("btn_cana_citros_refresh")) {
                         Icon(Icons.Default.Refresh, contentDescription = "Atualizar", tint = MaterialTheme.colorScheme.primary)
                     }
                 }
                 Spacer(Modifier.height(6.dp))
+                stateSelector?.let { it(); Spacer(Modifier.height(6.dp)) }
                 CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 40.dp) {
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         items(stations, key = { it.id }) { st ->
@@ -149,7 +164,7 @@ fun CanaCitrosContent(
         }
 
         // Alertas INMET no topo
-        item { AlertsSection(activeAlerts) }
+        item { AlertsSection(activeAlerts, alertsScopeLabel) }
 
         if (series == null || station == null) {
             item {
@@ -201,6 +216,8 @@ fun CanaCitrosContent(
         val cana = listOf(CanaCitrosIndices.sugarcaneRust(series), CanaCitrosIndices.heatDroughtStress(series, wb), CanaCitrosIndices.fireRisk(series, wb))
         val both = listOf(CanaCitrosIndices.frost(series))
 
+        item { FaoEtcCard(series) }
+        item { SoilMetricsCard(series) }
         item { WaterBalanceCard(wb) }
         item { RainAccumulationCard(series) }
         item { SprayCard(spray) }
@@ -240,11 +257,11 @@ private fun SectionCard(title: String, accent: Color, modifier: Modifier = Modif
 }
 
 @Composable
-private fun AlertsSection(alerts: List<WeatherAlertEntity>) {
+private fun AlertsSection(alerts: List<WeatherAlertEntity>, scope: String = "SP") {
     if (alerts.isEmpty()) {
         Surface(shape = RoundedCornerShape(10.dp), color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)) {
             Text(
-                "Nenhum aviso do INMET para SP carregado no app (detalhes na aba Alertas)",
+                "Nenhum aviso do INMET para $scope carregado no app (detalhes na aba Alertas)",
                 fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp)
             )
@@ -268,7 +285,7 @@ private fun AlertsSection(alerts: List<WeatherAlertEntity>) {
             }
         }
         Text(
-            "Fonte: INMET (avisos para SP)" + if (alerts.size > 3) " • +${alerts.size - 3} na aba Alertas" else "",
+            "Fonte: INMET (avisos para $scope)" + if (alerts.size > 3) " • +${alerts.size - 3} na aba Alertas" else "",
             fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant
         )
     }

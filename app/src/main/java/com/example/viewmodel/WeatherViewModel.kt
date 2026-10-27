@@ -34,9 +34,13 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.sync.withLock
 import java.io.File
 import java.util.Locale
 
@@ -65,7 +69,132 @@ data class RegionalRainSummary(
     val riskDescription: String
 )
 
-class WeatherViewModel(private val repository: WeatherRepository) : ViewModel() {
+/** Estado do módulo de rios/indicadores de um estado (v5.1). */
+data class HazardsUiState(
+    val loading: Boolean = false,
+    val gauges: List<com.example.domain.GaugeStatus> = emptyList(),
+    val forecastAlerts: List<com.example.domain.HazardAlert> = emptyList(),
+    val glofasError: String? = null,
+    val forecastError: String? = null,
+    val updatedAt: Long = 0L
+)
+
+class WeatherViewModel(
+    private val repository: WeatherRepository,
+    /** null em testes; no app guarda o estado selecionado e a opção de notificações. */
+    private val settings: com.example.data.local.AppSettings? = null,
+    private val hazardsService: com.example.data.remote.HazardsService = com.example.data.remote.HazardsService()
+) : ViewModel() {
+
+    // ---------------- v5.1: estado (SP/PR/RS), alertas e enchentes ----------------
+    private val _selectedState = MutableStateFlow(settings?.selectedState ?: com.example.domain.BrState.SP)
+    val selectedState: StateFlow<com.example.domain.BrState> = _selectedState.asStateFlow()
+
+    private val _hazards = MutableStateFlow<Map<com.example.domain.BrState, HazardsUiState>>(emptyMap())
+    val hazardsByState: StateFlow<Map<com.example.domain.BrState, HazardsUiState>> = _hazards.asStateFlow()
+
+    val inmetAlertsError: StateFlow<String?> = repository.alertsError
+    val inmetAlertsUpdatedAt: StateFlow<Long> = repository.alertsLastUpdated
+
+    private val _alertNotificationsEnabled = MutableStateFlow(settings?.alertNotificationsEnabled ?: false)
+    val alertNotificationsEnabled: StateFlow<Boolean> = _alertNotificationsEnabled.asStateFlow()
+
+    fun setAlertNotificationsEnabled(context: Context, enabled: Boolean) {
+        settings?.alertNotificationsEnabled = enabled
+        _alertNotificationsEnabled.value = enabled
+        if (enabled) com.example.work.AlertsWorker.schedule(context.applicationContext)
+        else com.example.work.AlertsWorker.cancel(context.applicationContext)
+    }
+
+    fun setSelectedState(state: com.example.domain.BrState) {
+        if (state == _selectedState.value) return
+        _selectedState.value = state
+        settings?.selectedState = state
+        selectStation(state.defaultStationId)
+        viewModelScope.launch { repository.refreshAllHourlyAndDailyLive(state.defaultStationId, stateFilter = state) }
+        refreshHazards(state)
+    }
+
+    private val hazardMutex = kotlinx.coroutines.sync.Mutex()
+
+    /** Rios (GloFAS + ANA) e indicadores de previsão do estado. Cache de 30 min. Erros viram mensagens (sem dados inventados). */
+    fun refreshHazards(state: com.example.domain.BrState = _selectedState.value, force: Boolean = false) {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            hazardMutex.withLock {
+                val prev = _hazards.value[state]
+                // Cache de 30 min só para uma consulta completa (com falha, tenta de novo na próxima chamada)
+                if (!force && prev != null && !prev.loading && System.currentTimeMillis() - prev.updatedAt < 30 * 60_000L &&
+                    prev.glofasError == null && prev.forecastError == null) return@withLock
+                // Depois de uma falha, espera 2 min antes de tentar de novo (troca de aba não martela a API)
+                if (!force && prev != null && !prev.loading && (prev.glofasError != null || prev.forecastError != null) &&
+                    System.currentTimeMillis() - prev.updatedAt < 2 * 60_000L) return@withLock
+                if (repository.userPreferences.first()?.isOfflineModeForced == true) return@withLock
+                _hazards.value = _hazards.value + (state to (prev ?: HazardsUiState()).copy(loading = true))
+                val brt = java.util.TimeZone.getTimeZone("America/Sao_Paulo")
+                val iso = java.text.SimpleDateFormat("yyyy-MM-dd", Locale.US).apply { timeZone = brt }
+                val dmy = java.text.SimpleDateFormat("dd/MM/yyyy", Locale.US).apply { timeZone = brt }
+                val now = System.currentTimeMillis()
+                val today = iso.format(java.util.Date(now))
+                val gauges = com.example.domain.FloodGauges.forState(state)
+                var glofasErr: String? = null
+                val series: List<com.example.data.remote.GlofasSeries?> = try {
+                    hazardsService.fetchGlofas(gauges.map { it.glofasLat to it.glofasLon }, today = today)
+                } catch (e: Exception) { glofasErr = e.message ?: "erro de rede"; gauges.map { null } }
+                val statuses = kotlinx.coroutines.coroutineScope {
+                    gauges.mapIndexed { i, g ->
+                        async {
+                            var anaErr: String? = null
+                            val ana = g.anaCode?.let { code ->
+                                try {
+                                    hazardsService.fetchAnaLevels(code, dmy.format(java.util.Date(now - 3 * 86_400_000L)), dmy.format(java.util.Date(now)))
+                                } catch (e: Exception) { anaErr = e.message ?: "erro de rede"; emptyList() }
+                            } ?: emptyList()
+                            com.example.domain.FloodGauges.evaluate(g, series.getOrNull(i), glofasErr, ana, anaErr)
+                        }
+                    }.awaitAll()
+                }
+                var fcErr: String? = null
+                val cities = stationsFor(state).take(15).map { com.example.domain.HazardRules.City(it.name, it.lat, it.lon) }
+                val fcAlerts = try {
+                    val pts = hazardsService.fetchForecastRisk(cities.map { it.lat to it.lon }, days = 3)
+                    com.example.domain.HazardRules.fromForecast(state, cities, pts)
+                } catch (e: Exception) { fcErr = e.message ?: "erro de rede"; prev?.forecastAlerts ?: emptyList() }
+                _hazards.value = _hazards.value + (state to HazardsUiState(
+                    loading = false, gauges = statuses, forecastAlerts = fcAlerts,
+                    glofasError = glofasErr, forecastError = fcErr, updatedAt = now
+                ))
+            }
+        }
+    }
+
+    private suspend fun stationsFor(state: com.example.domain.BrState): List<WeatherStationEntity> =
+        repository.allStations.first().filter { com.example.domain.BrState.ofStationId(it.id) == state }
+
+    /** Alertas (3 categorias) do estado selecionado: INMET + indicadores de previsão + rios. */
+    val hazardAlerts: StateFlow<List<com.example.domain.HazardAlert>> by lazy {
+        combine(repository.allAlerts, _selectedState, _hazards) { alerts, state, hz ->
+            val h = hz[state]
+            com.example.domain.HazardRules.sort(
+                com.example.domain.HazardRules.fromInmet(alerts, state) +
+                    (h?.forecastAlerts ?: emptyList()) +
+                    com.example.domain.HazardRules.fromRivers(state, h?.gauges ?: emptyList())
+            )
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    }
+
+    private suspend fun computeHazardAlerts(state: com.example.domain.BrState): List<com.example.domain.HazardAlert> {
+        val h = _hazards.value[state]
+        return com.example.domain.HazardRules.sort(
+            com.example.domain.HazardRules.fromInmet(repository.allAlerts.first(), state) +
+                (h?.forecastAlerts ?: emptyList()) +
+                com.example.domain.HazardRules.fromRivers(state, h?.gauges ?: emptyList())
+        )
+    }
+
+    fun refreshInmetAlertsNow() {
+        viewModelScope.launch { repository.refreshInmetAlerts() }
+    }
+
 
     private val _selectedStationId = MutableStateFlow("sao_paulo")
     val selectedStationId: StateFlow<String> = _selectedStationId.asStateFlow()
@@ -127,6 +256,12 @@ class WeatherViewModel(private val repository: WeatherRepository) : ViewModel() 
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    /** Cidades do estado selecionado (seletor SP/PR/RS). */
+    val stationsOfSelectedState: StateFlow<List<WeatherStationEntity>> by lazy {
+        combine(allStations, _selectedState) { list, st -> list.filter { com.example.domain.BrState.ofStationId(it.id) == st } }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    }
+
     val allAlerts: StateFlow<List<WeatherAlertEntity>> = repository.allAlerts
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
@@ -180,9 +315,17 @@ class WeatherViewModel(private val repository: WeatherRepository) : ViewModel() 
     private val _isAppInForeground = MutableStateFlow(true)
     val isAppInForeground: StateFlow<Boolean> = _isAppInForeground.asStateFlow()
 
+    /** Suspende enquanto o app estiver em segundo plano (onStop). */
+    private suspend fun awaitForeground() { _isAppInForeground.first { it } }
+
+    // A abertura do app já atualiza no init; ao voltar ao primeiro plano só atualiza se passou 10 min
+    // (antes: rede a cada onStart, inclusive ao voltar do compartilhamento ou girar a tela).
+    private var lastForegroundRefreshAt = System.currentTimeMillis()
+
     fun setAppInForeground(inForeground: Boolean) {
         _isAppInForeground.value = inForeground
-        if (inForeground) {
+        if (inForeground && System.currentTimeMillis() - lastForegroundRefreshAt >= 10 * 60_000L) {
+            lastForegroundRefreshAt = System.currentTimeMillis()
             refreshActiveStation()
         }
     }
@@ -409,16 +552,29 @@ class WeatherViewModel(private val repository: WeatherRepository) : ViewModel() 
     init {
         viewModelScope.launch {
             repository.initializePreloadedDataIfNeeded()
-            repository.refreshAllHourlyAndDailyLive()
+            val state = _selectedState.value
+            val saved = repository.getSavedActiveStationId()
+            _selectedStationId.value = if (saved != null && com.example.domain.BrState.ofStationId(saved) == state) saved else state.defaultStationId
+            repository.refreshAllHourlyAndDailyLive(_selectedStationId.value, stateFilter = state)
+        }
+        // v5.1: avisos oficiais do INMET (antes nunca eram buscados) e rios/indicadores, a cada 30 min
+        viewModelScope.launch {
+            while (true) {
+                awaitForeground() // em segundo plano quem verifica é o AlertsWorker (opcional)
+                repository.refreshInmetAlerts()
+                refreshHazards(_selectedState.value)
+                kotlinx.coroutines.delay(30 * 60_000L)
+            }
         }
         viewModelScope.launch {
             var lastHour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
             while (true) {
+                awaitForeground() // relógio e atualização horária pausam com o app em segundo plano
                 _liveCurrentTime.value = System.currentTimeMillis()
                 val currentHour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
                 if (currentHour != lastHour) {
                     lastHour = currentHour
-                    repository.refreshAllHourlyAndDailyLive()
+                    repository.refreshAllHourlyAndDailyLive(_selectedStationId.value, stateFilter = _selectedState.value)
                 }
                 kotlinx.coroutines.delay(1000L)
             }
@@ -426,6 +582,7 @@ class WeatherViewModel(private val repository: WeatherRepository) : ViewModel() 
         viewModelScope.launch {
             while (true) {
                 kotlinx.coroutines.delay(1800L)
+                awaitForeground()
                 if (_isRadarPlaying.value) {
                     val nextStep = (_radarTimeStep.value + 1) % 7
                     _radarTimeStep.value = nextStep
@@ -555,6 +712,12 @@ class WeatherViewModel(private val repository: WeatherRepository) : ViewModel() 
     }
 
     private fun fallbackLocationManager(context: Context, onResult: (String, Boolean) -> Unit) {
+        val granted = ContextCompat.checkSelfPermission(context, android.Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+            ContextCompat.checkSelfPermission(context, android.Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        if (!granted) {
+            onResult("Permissão de GPS necessária para detectar sua cidade automaticamente", false)
+            return
+        }
         try {
             val locationManager = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
             if (locationManager != null) {
@@ -713,63 +876,59 @@ class WeatherViewModel(private val repository: WeatherRepository) : ViewModel() 
         ShareHelper.shareWeatherStatus(context, station)
     }
 
-    fun exportWeatherReportPdf(context: Context, onResult: (File?) -> Unit) {
+    /** v5.1: PDF da tela inicial (mapa de chuva, previsão 7/15 dias, alertas, rios, fontes). */
+    fun exportMainReportPdf(
+        context: Context,
+        options: com.example.util.MainReportOptions = com.example.util.MainReportOptions(),
+        onResult: (File?) -> Unit
+    ) {
         viewModelScope.launch {
-            val station = currentStation.value ?: allStations.value.firstOrNull()
-            if (station == null) {
-                onResult(null)
-                return@launch
+            val state = _selectedState.value
+            val sid = _selectedStationId.value
+            val station = repository.getStationById(sid).first()
+            val daily = repository.getDailyForecasts(sid).first()
+            val alerts = computeHazardAlerts(state)
+            val gauges = _hazards.value[state]?.gauges ?: emptyList()
+            val file = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                try {
+                    com.example.util.SimetReports.mainReport(context.applicationContext, state, station, daily, alerts, gauges, options)
+                } catch (e: Exception) { null }
             }
-            val daily = dailyForecasts.value
-            val alerts = allAlerts.value
-            val trends = climateTrends.value
-            val file = PdfExporter.generateWeatherReportPdf(context, station, daily, alerts, trends)
             onResult(file)
         }
     }
 
+    /** Mantido para as telas antigas (Previsão/Ajustes): agora gera o boletim novo com as opções padrão. */
+    fun exportWeatherReportPdf(context: Context, onResult: (File?) -> Unit) =
+        exportMainReportPdf(context, com.example.util.MainReportOptions(), onResult)
+
+    /** Compatibilidade com a v5.0 (diálogo antigo): mapeia as opções antigas para o boletim novo. */
     fun exportCustomWeatherReportPdf(
         context: Context,
         options: PdfExportOptions = PdfExportOptions(),
         onResult: (File?) -> Unit
-    ) {
-        viewModelScope.launch {
-            val station = currentStation.value ?: allStations.value.firstOrNull()
-            if (station == null) {
-                onResult(null)
-                return@launch
-            }
-            val daily = dailyForecasts.value
-            val hourly = hourlyForecasts.value
-            val alerts = allAlerts.value
-            val trends = climateTrends.value
-            val news = regionalWeatherNews.value
-            val coords = _userCoordinates.value
-            val file = PdfExporter.generateEnhancedWeatherReportPdf(
-                context = context,
-                station = station,
-                dailyForecasts = daily,
-                hourlyForecasts = hourly,
-                alerts = alerts,
-                climateTrends = trends,
-                newsList = news,
-                userCoords = coords,
-                options = options
-            )
-            onResult(file)
-        }
-    }
+    ) = exportMainReportPdf(
+        context,
+        com.example.util.MainReportOptions(includeAlerts = options.includeAlerts, include15Days = options.includeDailyForecast),
+        onResult
+    )
 
+    /** v5.1: boletim agro (cana e citros) com cabeçalho, seções, fontes e numeração de páginas. */
     fun exportAgroReportPdf(context: Context, onResult: (File?) -> Unit) {
         viewModelScope.launch {
-            val station = currentStation.value ?: allStations.value.firstOrNull()
-            if (station == null) {
-                onResult(null)
-                return@launch
+            val state = _selectedState.value
+            val stationId = _selectedStationId.value
+            repository.ensureAgroSeries(stationId)
+            val station = repository.getStationById(stationId).first()
+            val daily = repository.getDailyForecasts(stationId).first()
+            val series = repository.agroSeries.value[stationId]
+            val inmet = repository.allAlerts.first().filter { it.id.startsWith("inmet_") && state in com.example.data.repository.InmetAlertMapper.statesOfEntity(it) }
+            val month = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("America/Sao_Paulo")).get(java.util.Calendar.MONTH) + 1
+            val file = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                try {
+                    com.example.util.SimetReports.agroReport(context.applicationContext, state, station, daily, series, inmet, month)
+                } catch (e: Exception) { null }
             }
-            val daily = dailyForecasts.value
-            val alerts = allAlerts.value
-            val file = PdfExporter.generateAgroReportPdf(context, station, daily, alerts)
             onResult(file)
         }
     }
@@ -798,7 +957,7 @@ class WeatherViewModel(private val repository: WeatherRepository) : ViewModel() 
                 val st = currentStation.value
                 val targetQuery = when {
                     !customQuery.isNullOrBlank() -> customQuery.trim()
-                    st != null -> "Município de ${st.name}, SP"
+                    st != null -> "Município de ${st.name}, ${com.example.domain.BrState.ofStationId(st.id).uf}"
                     coords != null -> "Localização Atual do Usuário em SP"
                     else -> "Bauru e Região Central, SP"
                 }
@@ -806,9 +965,11 @@ class WeatherViewModel(private val repository: WeatherRepository) : ViewModel() 
                 val lat = coords?.first ?: st?.lat
                 val lon = coords?.second ?: st?.lon
 
-                val stormsSummary = activeStormCells.joinToString("; ") { cell ->
-                    "${cell.name} (${cell.dbzPeak} dBZ, ${cell.rainRateMmH} mm/h em direção a ${cell.headingCompass})"
-                }
+                // v5.1: o serviço rotula este campo como "AVISOS OFICIAIS VIGENTES (INMET)". Antes recebia as células de
+                // tempestade ilustrativas do radar nativo; agora recebe só avisos reais do INMET do estado (ou nada).
+                val stormsSummary = com.example.domain.HazardRules.fromInmet(
+                    repository.allAlerts.first(), com.example.domain.BrState.ofStationId(st?.id ?: _selectedStationId.value)
+                ).distinctBy { it.id.substringBefore('#') }.joinToString("; ") { "${it.title} — ${it.area} (${it.validity})" }
 
                 val stationSummary = st?.let {
                     "Estação ${it.name}: ${it.currentTemp}°C, Chuva acumulada: ${it.rainVolumeMm}mm, Umidade: ${it.humidity}%"
@@ -849,7 +1010,7 @@ class WeatherViewModelFactory(
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(WeatherViewModel::class.java)) {
             @Suppress("UNCHECKED_CAST")
-            return WeatherViewModel(repository) as T
+            return WeatherViewModel(repository, context?.let { com.example.data.local.AppSettings(it) }) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")
     }

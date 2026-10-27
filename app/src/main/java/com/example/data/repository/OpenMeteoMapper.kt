@@ -62,6 +62,30 @@ data class AgroDay(
     val prob: Int?
 )
 
+data class SoilData(
+    val temp0cm: Double?,
+    val temp6cm: Double?,
+    val temp18cm: Double?,
+    val temp54cm: Double?,
+    val moist0to1cm: Double?,
+    val moist1to3cm: Double?,
+    val moist3to9cm: Double?,
+    val moist9to27cm: Double?,
+    val moist27to81cm: Double?
+) {
+    /** Média volumétrica da camada superficial (0 a 9 cm) em % (0 a 100). */
+    val topsoilMoisturePct: Double? get() {
+        val vals = listOfNotNull(moist0to1cm, moist1to3cm, moist3to9cm)
+        return if (vals.isEmpty()) null else ((vals.average() * 1000.0).roundToInt() / 10.0)
+    }
+
+    /** Média volumétrica do perfil radicular profundo (9 a 81 cm) em % (0 a 100). */
+    val subsoilMoisturePct: Double? get() {
+        val vals = listOfNotNull(moist9to27cm, moist27to81cm)
+        return if (vals.isEmpty()) null else ((vals.average() * 1000.0).roundToInt() / 10.0)
+    }
+}
+
 /** Série horária/diária com índice da hora/dia atual (dados reais da Open-Meteo; diária com past_days=30, horária com 7 dias passados). */
 data class AgroSeries(
     val stationId: String,
@@ -69,7 +93,8 @@ data class AgroSeries(
     val nowIndex: Int,
     val days: List<AgroDay>,
     val todayIndex: Int,
-    val fetchedAt: Long
+    val fetchedAt: Long,
+    val currentSoil: SoilData? = null
 )
 
 /** Funções puras de mapeamento Open-Meteo → entidades do app (testáveis sem rede). */
@@ -252,8 +277,21 @@ object OpenMeteoMapper {
                     prob = d?.precipitationProbabilityMax?.getOrNull(i)?.roundToInt()
                 )
             }
+            val currentSoil = if (nowIdx >= 0 && h != null) {
+                SoilData(
+                    temp0cm = h.soilTemperature0cm?.getOrNull(nowIdx),
+                    temp6cm = h.soilTemperature6cm?.getOrNull(nowIdx),
+                    temp18cm = h.soilTemperature18cm?.getOrNull(nowIdx),
+                    temp54cm = h.soilTemperature54cm?.getOrNull(nowIdx),
+                    moist0to1cm = h.soilMoisture0to1cm?.getOrNull(nowIdx),
+                    moist1to3cm = h.soilMoisture1to3cm?.getOrNull(nowIdx),
+                    moist3to9cm = h.soilMoisture3to9cm?.getOrNull(nowIdx),
+                    moist9to27cm = h.soilMoisture9to27cm?.getOrNull(nowIdx),
+                    moist27to81cm = h.soilMoisture27to81cm?.getOrNull(nowIdx)
+                )
+            } else null
             if (hours.isEmpty() && days.isEmpty()) null
-            else AgroSeries(base.id, hours, nowIdx, days, todayIdx, nowMillis)
+            else AgroSeries(base.id, hours, nowIdx, days, todayIdx, nowMillis, currentSoil)
         }
 
         return OpenMeteoMapped(hourly, daily, station, agro, series)

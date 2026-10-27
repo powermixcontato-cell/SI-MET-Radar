@@ -21,7 +21,7 @@ object OpenMeteoConfig {
     const val CURRENT_PARAMS =
         "temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,wind_speed_10m,wind_direction_10m,weather_code,pressure_msl"
     const val HOURLY_PARAMS =
-        "temperature_2m,relative_humidity_2m,precipitation,precipitation_probability,wind_speed_10m,wind_direction_10m,wind_gusts_10m,weather_code"
+        "temperature_2m,relative_humidity_2m,precipitation,precipitation_probability,wind_speed_10m,wind_direction_10m,wind_gusts_10m,weather_code,cape,soil_temperature_0cm,soil_temperature_6cm,soil_temperature_18cm,soil_temperature_54cm,soil_moisture_0_to_1cm,soil_moisture_1_to_3cm,soil_moisture_3_to_9cm,soil_moisture_9_to_27cm,soil_moisture_27_to_81cm"
     const val DAILY_PARAMS =
         "temperature_2m_max,temperature_2m_min,precipitation_sum,precipitation_probability_max,wind_speed_10m_max,et0_fao_evapotranspiration,shortwave_radiation_sum,sunrise,sunset,uv_index_max"
     const val FORECAST_DAYS = 16 // máximo permitido (17 = HTTP 400)
@@ -37,6 +37,13 @@ object OpenMeteoConfig {
     const val FORECAST_HOURS = FORECAST_DAYS * 24
     /** Janelas de acumulado de chuva exibidas no app (dias). */
     val ACCUMULATION_WINDOWS = listOf(7, 15, 30)
+
+    /** Resolve nome de modelo, convertendo alias amigável para o endpoint real do Open-Meteo. */
+    fun resolveModel(modelName: String?): String? = when (modelName?.trim()?.lowercase()) {
+        null, "", "best_match" -> null
+        "ecmwf_ifs_hres" -> "ecmwf_ifs"
+        else -> modelName.trim()
+    }
 }
 
 @JsonClass(generateAdapter = true)
@@ -70,7 +77,17 @@ data class OpenMeteoHourly(
     @Json(name = "wind_speed_10m") val windSpeed: List<Double?>? = null,
     @Json(name = "wind_direction_10m") val windDirection: List<Double?>? = null,
     @Json(name = "wind_gusts_10m") val windGusts: List<Double?>? = null,
-    @Json(name = "weather_code") val weatherCode: List<Int?>? = null
+    @Json(name = "weather_code") val weatherCode: List<Int?>? = null,
+    @Json(name = "cape") val cape: List<Double?>? = null,
+    @Json(name = "soil_temperature_0cm") val soilTemperature0cm: List<Double?>? = null,
+    @Json(name = "soil_temperature_6cm") val soilTemperature6cm: List<Double?>? = null,
+    @Json(name = "soil_temperature_18cm") val soilTemperature18cm: List<Double?>? = null,
+    @Json(name = "soil_temperature_54cm") val soilTemperature54cm: List<Double?>? = null,
+    @Json(name = "soil_moisture_0_to_1cm") val soilMoisture0to1cm: List<Double?>? = null,
+    @Json(name = "soil_moisture_1_to_3cm") val soilMoisture1to3cm: List<Double?>? = null,
+    @Json(name = "soil_moisture_3_to_9cm") val soilMoisture3to9cm: List<Double?>? = null,
+    @Json(name = "soil_moisture_9_to_27cm") val soilMoisture9to27cm: List<Double?>? = null,
+    @Json(name = "soil_moisture_27_to_81cm") val soilMoisture27to81cm: List<Double?>? = null
 )
 
 @JsonClass(generateAdapter = true)
@@ -101,7 +118,8 @@ interface OpenMeteoApi {
         @Query("past_hours") pastHours: Int = OpenMeteoConfig.PAST_HOURS,
         @Query("forecast_hours") forecastHours: Int = OpenMeteoConfig.FORECAST_HOURS,
         @Query("timezone") timezone: String = OpenMeteoConfig.TIMEZONE,
-        @Query("wind_speed_unit") windSpeedUnit: String = "kmh"
+        @Query("wind_speed_unit") windSpeedUnit: String = "kmh",
+        @Query("models") models: String? = null
     ): OpenMeteoResponse
 }
 
