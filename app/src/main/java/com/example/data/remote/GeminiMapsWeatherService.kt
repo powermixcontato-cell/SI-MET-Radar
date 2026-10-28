@@ -24,6 +24,15 @@ class GeminiMapsWeatherService {
         const val PRIMARY_MODEL = "gemini-3.5-flash"
         const val FALLBACK_MODEL = "gemini-2.5-flash"
         const val UNAVAILABLE_LABEL = "Diagnóstico por IA indisponível"
+
+        /** Chave válida? (placeholder ou vazia = não). Separado para teste. */
+        fun isUsableKey(key: String?): Boolean = !key.isNullOrBlank() && key != "MY_GEMINI_API_KEY"
+
+        /**
+         * Card de IA só aparece com chave. No release a chave é sempre vazia (não vai no APK), então o card
+         * fica oculto até as chamadas do Gemini passarem pelo servidor próprio.
+         */
+        val isConfigured: Boolean get() = isUsableKey(BuildConfig.GEMINI_API_KEY)
     }
 
     private val client = OkHttpClient.Builder()
@@ -49,7 +58,7 @@ class GeminiMapsWeatherService {
         }
 
         // If API key is available, call Gemini 3.5 Flash with googleMaps Grounding tool
-        if (apiKey.isNotBlank() && apiKey != "MY_GEMINI_API_KEY") {
+        if (isUsableKey(apiKey)) {
             try {
                 val result = callGeminiWithMapsGrounding(
                     model = PRIMARY_MODEL,

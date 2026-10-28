@@ -67,8 +67,11 @@ fun SettingsAndApiScreen(
     val context = LocalContext.current
     val prefs by viewModel.userPreferences.collectAsStateWithLifecycle()
 
-    var openWeatherKeyInput by remember(prefs.openWeatherApiKey) { mutableStateOf(prefs.openWeatherApiKey) }
-    var weatherbitKeyInput by remember(prefs.weatherbitApiKey) { mutableStateOf(prefs.weatherbitApiKey) }
+    // Chaves vêm do armazenamento cifrado (o Room não guarda mais as chaves)
+    val apiKeys by viewModel.apiKeys.collectAsStateWithLifecycle()
+    androidx.compose.runtime.LaunchedEffect(Unit) { viewModel.loadApiKeys() }
+    var openWeatherKeyInput by remember(apiKeys.first) { mutableStateOf(apiKeys.first) }
+    var weatherbitKeyInput by remember(apiKeys.second) { mutableStateOf(apiKeys.second) }
 
     LazyColumn(
         modifier = modifier
