@@ -40,7 +40,9 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.toMutableStateList
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -71,7 +73,9 @@ fun MainAppScaffold(
     val appSettings = remember { AppSettings(context) }
 
     var currentTab by rememberSaveable { mutableIntStateOf(0) }
-    val tabHistory = rememberSaveable { mutableStateListOf(0) }
+    val tabHistory = rememberSaveable(
+        saver = listSaver(save = { it.toList() }, restore = { it.toMutableStateList() })
+    ) { mutableStateListOf(0) }
     var othersRoute by rememberSaveable { mutableStateOf<OthersRoute?>(null) }
     var lastBackPressTime by remember { mutableLongStateOf(0L) }
     var showInitialCityModal by rememberSaveable { mutableStateOf(false) }
