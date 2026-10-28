@@ -148,6 +148,8 @@ fun SimetLeafletMap(
         onDispose { lifecycleOwner.lifecycle.removeObserver(obs) }
     }
 
+    var isFullDragActive by remember { mutableStateOf(false) }
+
     Box(modifier = modifier.clipToBounds().clip(SimetCardDefaults.InnerShape).background(Color(0xFF0A0F1D))) {
         AndroidView(
             factory = { ctx ->
@@ -170,6 +172,66 @@ fun SimetLeafletMap(
                         builtInZoomControls = false
                         displayZoomControls = false
                     }
+
+                    // Permite arrastar e dar zoom direto no card sem travar a rolagem da lista
+                    var startX = 0f
+                    var startY = 0f
+                    var hasDirection = false
+                    var isMapGesture = false
+
+                    setOnTouchListener { v, event ->
+                        if (isFullDragActive) {
+                            // Modo livre: consome todos os toques no mapa
+                            v.parent?.requestDisallowInterceptTouchEvent(true)
+                            return@setOnTouchListener v.onTouchEvent(event)
+                        }
+
+                        when (event.actionMasked) {
+                            android.view.MotionEvent.ACTION_DOWN -> {
+                                startX = event.x
+                                startY = event.y
+                                hasDirection = false
+                                isMapGesture = false
+                                v.parent?.requestDisallowInterceptTouchEvent(false)
+                            }
+                            android.view.MotionEvent.ACTION_POINTER_DOWN -> {
+                                // 2 dedos = pinch-to-zoom ou arrasto com 2 dedos: prioriza mapa
+                                isMapGesture = true
+                                hasDirection = true
+                                v.parent?.requestDisallowInterceptTouchEvent(true)
+                            }
+                            android.view.MotionEvent.ACTION_MOVE -> {
+                                if (event.pointerCount > 1) {
+                                    v.parent?.requestDisallowInterceptTouchEvent(true)
+                                } else if (!hasDirection) {
+                                    val dx = kotlin.math.abs(event.x - startX)
+                                    val dy = kotlin.math.abs(event.y - startY)
+                                    val slop = android.view.ViewConfiguration.get(v.context).scaledTouchSlop
+                                    if (dx > slop || dy > slop) {
+                                        hasDirection = true
+                                        if (dx > dy) {
+                                            // Movimento horizontal: arrasta o mapa
+                                            isMapGesture = true
+                                            v.parent?.requestDisallowInterceptTouchEvent(true)
+                                        } else {
+                                            // Movimento vertical: deixa a página rolar
+                                            isMapGesture = false
+                                            v.parent?.requestDisallowInterceptTouchEvent(false)
+                                        }
+                                    }
+                                } else if (isMapGesture) {
+                                    v.parent?.requestDisallowInterceptTouchEvent(true)
+                                }
+                            }
+                            android.view.MotionEvent.ACTION_UP, android.view.MotionEvent.ACTION_CANCEL -> {
+                                v.parent?.requestDisallowInterceptTouchEvent(false)
+                                hasDirection = false
+                                isMapGesture = false
+                            }
+                        }
+                        v.onTouchEvent(event)
+                    }
+
                     webViewClient = object : WebViewClient() {
                         override fun onPageFinished(view: WebView?, url: String?) { loading = false }
                         override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
@@ -204,7 +266,7 @@ fun SimetLeafletMap(
         )
 
         if (!interactive) {
-            // Camada de toque: impede que o WebView capture gestos dentro da lista rolável
+            // Camada de toque apenas quando o mapa estiver totalmente desativado
             Box(Modifier.fillMaxSize().pointerInput(onTap) { detectTapGestures(onTap = { onTap?.invoke() }) })
         }
 

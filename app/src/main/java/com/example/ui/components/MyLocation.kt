@@ -65,7 +65,7 @@ private fun toast(ctx: Context, msg: String) = Toast.makeText(ctx, msg, Toast.LE
  * última posição do LocationManager (aparelhos sem Google Play Services). Retorna null se nada vier a tempo.
  */
 @SuppressLint("MissingPermission") // só é chamado depois de hasLocationPermission()
-private suspend fun readLocation(ctx: Context): Location? {
+internal suspend fun readLocation(ctx: Context): Location? {
     val fine = ContextCompat.checkSelfPermission(ctx, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
     val fused = try { LocationServices.getFusedLocationProviderClient(ctx) } catch (_: Exception) { null }
     if (fused != null) {

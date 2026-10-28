@@ -52,7 +52,7 @@ fun StateSelectorBar(
     ) {
         Row(
             Modifier.clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.surfaceVariant).padding(3.dp),
-            horizontalArrangement = Arrangement.spacedBy(3.dp)
+            horizontalArrangement = Arrangement.spacedBy(2.dp)
         ) {
             BrState.entries.forEach { st ->
                 val isSel = st == selected
@@ -61,12 +61,12 @@ fun StateSelectorBar(
                         .clip(RoundedCornerShape(10.dp))
                         .background(if (isSel) SimetCardDefaults.Accent else Color.Transparent)
                         .clickable { onSelect(st) }
-                        .padding(horizontal = 18.dp, vertical = 8.dp)
+                        .padding(horizontal = 14.dp, vertical = 7.dp)
                         .testTag("state_${st.uf}"),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        st.uf, fontWeight = FontWeight.Bold, fontSize = 14.sp,
+                        st.uf, fontWeight = FontWeight.Bold, fontSize = 13.sp,
                         color = if (isSel) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
@@ -81,18 +81,31 @@ fun StateSelectorBar(
             border = BorderStroke(1.dp, color.copy(alpha = 0.7f)),
             modifier = Modifier.testTag("badge_alerts")
         ) {
-            Row(Modifier.padding(horizontal = 10.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                 Icon(
                     if (top != null) Icons.Default.NotificationsActive else Icons.Default.NotificationsNone,
                     contentDescription = "Alertas", tint = color, modifier = Modifier.size(16.dp)
                 )
-                Spacer(Modifier.width(5.dp))
+                Spacer(Modifier.width(4.dp))
                 if (top != null) {
-                    Box(Modifier.size(8.dp).background(color, CircleShape))
-                    Spacer(Modifier.width(5.dp))
-                    Text("${alerts.size} alerta${if (alerts.size > 1) "s" else ""}", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                    Box(Modifier.size(7.dp).background(color, CircleShape))
+                    Spacer(Modifier.width(4.dp))
+                    Text(
+                        "${alerts.size} alerta${if (alerts.size > 1) "s" else ""}",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                    )
                 } else {
-                    Text("Sem alertas", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface)
+                    Text(
+                        "Sem alertas",
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                    )
                 }
             }
         }

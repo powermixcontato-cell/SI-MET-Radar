@@ -122,14 +122,20 @@ fun DailyForecastScreen(
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     val cityTitle = run {
-                        if (current.region.contains(current.name, ignoreCase = true) && current.region.contains(",")) {
-                            current.region
-                        } else if (current.region.endsWith("SP") || current.region.endsWith("PR") || current.region.endsWith("RS") || current.region.length == 2) {
-                            "${current.name}, ${current.region}"
-                        } else {
-                            val uf = com.example.domain.BrState.ofStationId(current.id).uf
-                            "${current.name}, $uf"
+                        val name = current.name
+                        val uf = when {
+                            current.region.contains("Rio Grande do Sul", true) -> "RS"
+                            current.region.contains("São Paulo", true) -> "SP"
+                            current.region.contains("Paraná", true) -> "PR"
+                            current.region.contains("Santa Catarina", true) -> "SC"
+                            current.region.contains("Minas Gerais", true) -> "MG"
+                            current.region.contains("Rio de Janeiro", true) -> "RJ"
+                            current.region.contains("Bahia", true) -> "BA"
+                            current.region.length == 2 -> current.region.uppercase()
+                            current.region.contains(",") -> current.region.substringAfterLast(",").trim().take(2).uppercase()
+                            else -> com.example.domain.BrState.ofStationId(current.id).uf
                         }
+                        if (name.contains(uf, ignoreCase = true)) name else "$name, $uf"
                     }
 
                     Surface(
@@ -150,13 +156,16 @@ fun DailyForecastScreen(
                                 modifier = Modifier.size(20.dp)
                             )
                             Spacer(modifier = Modifier.width(8.dp))
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f, fill = false)) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Text(
                                         cityTitle,
                                         color = MaterialTheme.colorScheme.onSurface,
                                         fontWeight = FontWeight.Bold,
-                                        fontSize = 19.sp
+                                        fontSize = 18.sp,
+                                        maxLines = 1,
+                                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f, fill = false)
                                     )
                                     Spacer(modifier = Modifier.width(4.dp))
                                     Icon(
@@ -169,7 +178,9 @@ fun DailyForecastScreen(
                                 Text(
                                     "${current.region} • Toque para alterar",
                                     color = MaterialTheme.colorScheme.primary,
-                                    fontSize = 12.sp
+                                    fontSize = 11.sp,
+                                    maxLines = 1,
+                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                                 )
                             }
                         }

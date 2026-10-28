@@ -3,7 +3,11 @@ package com.example.ui.components
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -97,8 +101,16 @@ fun DynamicHourlyChart(
                     .height(150.dp)
                     .pointerInput(hourlyList) {
                         detectTapGestures { offset ->
-                            val itemWidth = size.width / hourlyList.size
+                            val itemWidth = size.width / hourlyList.size.coerceAtLeast(1)
                             val idx = (offset.x / itemWidth).toInt().coerceIn(0, hourlyList.size - 1)
+                            selectedIndex = idx
+                        }
+                    }
+                    .pointerInput(hourlyList) {
+                        detectDragGestures { change, _ ->
+                            change.consume()
+                            val itemWidth = size.width / hourlyList.size.coerceAtLeast(1)
+                            val idx = (change.position.x / itemWidth).toInt().coerceIn(0, hourlyList.size - 1)
                             selectedIndex = idx
                         }
                     }
@@ -171,35 +183,38 @@ fun DynamicHourlyChart(
 
                     if (isSelected) {
                         drawCircle(
-                            color = primaryColor.copy(alpha = 0.3f),
-                            radius = 10f,
+                            color = primaryColor.copy(alpha = 0.35f),
+                            radius = 11f,
                             center = pt
                         )
                         drawLine(
-                            color = primaryColor.copy(alpha = 0.5f),
+                            color = primaryColor,
                             start = Offset(pt.x, 0f),
                             end = Offset(pt.x, chartHeight),
-                            strokeWidth = 1.5f
+                            strokeWidth = 2f,
+                            pathEffect = PathEffect.dashPathEffect(floatArrayOf(8f, 6f), 0f)
                         )
                     }
 
                     drawCircle(
                         color = if (isSelected) Color.White else primaryColor,
-                        radius = if (isSelected) 5f else 3.5f,
+                        radius = if (isSelected) 5.5f else 3.5f,
                         center = pt
                     )
 
-                    // Temp text above point
-                    safeDrawText(
-                        textMeasurer = textMeasurer,
-                        text = "${item.temp.toInt()}°",
-                        topLeft = Offset(pt.x - 12f, pt.y - 20f),
-                        style = TextStyle(
-                            color = if (isSelected) Color.White else Color(0xFFCBD5E1),
-                            fontSize = 10.sp,
-                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                    // Temp text above point (only if not selected to avoid overlapping tooltip)
+                    if (!isSelected) {
+                        safeDrawText(
+                            textMeasurer = textMeasurer,
+                            text = "${item.temp.toInt()}°",
+                            topLeft = Offset(pt.x - 12f, pt.y - 20f),
+                            style = TextStyle(
+                                color = Color(0xFFCBD5E1),
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Normal
+                            )
                         )
-                    )
+                    }
 
                     // Hour label below
                     safeDrawText(
@@ -211,6 +226,43 @@ fun DynamicHourlyChart(
                             fontSize = 9.sp,
                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
                         )
+                    )
+                }
+
+                // 4. Draw Floating Tooltip on Selected Point
+                if (selectedIndex in hourlyList.indices && selectedIndex in points.indices) {
+                    val selItem = hourlyList[selectedIndex]
+                    val selPt = points[selectedIndex]
+                    val tipText = "${selItem.hourText} • ${selItem.temp.toInt()}°C • ${selItem.rainProbability}% chuva"
+                    val measured = textMeasurer.measure(
+                        text = tipText,
+                        style = TextStyle(color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    )
+                    val tipPadH = 10f
+                    val tipPadV = 5f
+                    val tipW = measured.size.width + tipPadH * 2f
+                    val tipH = measured.size.height + tipPadV * 2f
+                    val tipX = (selPt.x - tipW / 2f).coerceIn(4f, w - tipW - 4f)
+                    val tipY = (selPt.y - tipH - 12f).let { if (it < 2f) selPt.y + 14f else it }
+
+                    drawRoundRect(
+                        color = Color(0xFF0F172A),
+                        topLeft = Offset(tipX, tipY),
+                        size = Size(tipW, tipH),
+                        cornerRadius = CornerRadius(6f, 6f)
+                    )
+                    drawRoundRect(
+                        color = primaryColor,
+                        topLeft = Offset(tipX, tipY),
+                        size = Size(tipW, tipH),
+                        cornerRadius = CornerRadius(6f, 6f),
+                        style = Stroke(width = 1.5f)
+                    )
+                    safeDrawText(
+                        textMeasurer = textMeasurer,
+                        text = tipText,
+                        topLeft = Offset(tipX + tipPadH, tipY + tipPadV),
+                        style = TextStyle(color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                     )
                 }
             }

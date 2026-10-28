@@ -46,6 +46,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
@@ -582,6 +583,36 @@ fun Ciiagro24hRechartsLineChart(
                                     color = Color.White,
                                     radius = 4f,
                                     center = Offset(curX, curY)
+                                )
+
+                                // Floating Tooltip Bubble no Canvas
+                                val pText = "${data[idx].hourText} • ${data[idx].temp}°C • ${data[idx].rainVolumeMm}mm"
+                                val measured = textMeasurer.measure(
+                                    text = pText,
+                                    style = TextStyle(color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                )
+                                val bw = measured.size.width + 16f
+                                val bh = measured.size.height + 8f
+                                val bl = (curX - bw / 2f).coerceIn(leftPad, w - rightPad - bw)
+                                val bt = (curY - bh - 10f).let { if (it < topPad) curY + 12f else it }
+                                drawRoundRect(
+                                    color = Color(0xFF090D16),
+                                    topLeft = Offset(bl, bt),
+                                    size = Size(bw, bh),
+                                    cornerRadius = CornerRadius(6f, 6f)
+                                )
+                                drawRoundRect(
+                                    color = Color(0xFF10B981),
+                                    topLeft = Offset(bl, bt),
+                                    size = Size(bw, bh),
+                                    cornerRadius = CornerRadius(6f, 6f),
+                                    style = Stroke(width = 1f)
+                                )
+                                drawText(
+                                    textMeasurer = textMeasurer,
+                                    text = pText,
+                                    topLeft = Offset(bl + 8f, bt + 4f),
+                                    style = TextStyle(color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                                 )
                             }
                         }

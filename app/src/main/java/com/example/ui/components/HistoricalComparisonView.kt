@@ -4,6 +4,12 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -262,11 +268,30 @@ fun HistoricalComparisonView(
                     val histColor = Color(0xFF64748B)
                     val rainColor = Color(0xFF38BDF8)
 
-                    Canvas(modifier = Modifier.fillMaxWidth().height(180.dp)) {
+                    Canvas(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(180.dp)
+                            .pointerInput(trends) {
+                                detectTapGestures { offset ->
+                                    val stepX = size.width / trends.size.coerceAtLeast(1)
+                                    val idx = (offset.x / stepX).toInt().coerceIn(0, trends.size - 1)
+                                    selectedMonthIndex = idx
+                                }
+                            }
+                            .pointerInput(trends) {
+                                detectDragGestures { change, _ ->
+                                    change.consume()
+                                    val stepX = size.width / trends.size.coerceAtLeast(1)
+                                    val idx = (change.position.x / stepX).toInt().coerceIn(0, trends.size - 1)
+                                    selectedMonthIndex = idx
+                                }
+                            }
+                    ) {
                         val w = size.width
                         val h = size.height
                         val chartHeight = h - 25f
-                        val stepX = w / trends.size
+                        val stepX = w / trends.size.coerceAtLeast(1)
 
                         if (selectedTabIndex == 2) {
                             // Rain comparison double bars
@@ -303,6 +328,28 @@ fun HistoricalComparisonView(
                                         fontWeight = if (i == selectedMonthIndex) FontWeight.Bold else FontWeight.Normal
                                     )
                                 )
+                            }
+
+                            // Linha vertical e tooltip do mês selecionado
+                            if (selectedMonthIndex in trends.indices) {
+                                val selX = selectedMonthIndex * stepX + stepX / 2f
+                                drawLine(
+                                    color = primaryColor.copy(alpha = 0.8f),
+                                    start = Offset(selX, 0f),
+                                    end = Offset(selX, chartHeight),
+                                    strokeWidth = 1.5f,
+                                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 6f), 0f)
+                                )
+                                val selItem = trends[selectedMonthIndex]
+                                val tipText = "${selItem.monthName} • Atual: ${selItem.rainCurrentMm.toInt()}mm | Hist: ${selItem.rainHistoricalMm.toInt()}mm"
+                                val measured = textMeasurer.measure(tipText, TextStyle(color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold))
+                                val tw = measured.size.width + 16f
+                                val th = measured.size.height + 8f
+                                val tx = (selX - tw / 2f).coerceIn(4f, w - tw - 4f)
+                                val ty = 2f
+                                drawRoundRect(color = Color(0xFF0F172A), topLeft = Offset(tx, ty), size = Size(tw, th), cornerRadius = CornerRadius(6f, 6f))
+                                drawRoundRect(color = primaryColor, topLeft = Offset(tx, ty), size = Size(tw, th), cornerRadius = CornerRadius(6f, 6f), style = Stroke(width = 1f))
+                                safeDrawText(textMeasurer, tipText, topLeft = Offset(tx + 8f, ty + 4f), style = TextStyle(color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold))
                             }
                         } else {
                             // Temperature comparison (or General Trend)
@@ -356,6 +403,28 @@ fun HistoricalComparisonView(
                                         fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
                                     )
                                 )
+                            }
+
+                            // Linha vertical e tooltip do mês selecionado
+                            if (selectedMonthIndex in trends.indices) {
+                                val selX = selectedMonthIndex * stepX + stepX / 2f
+                                drawLine(
+                                    color = primaryColor.copy(alpha = 0.8f),
+                                    start = Offset(selX, 0f),
+                                    end = Offset(selX, chartHeight),
+                                    strokeWidth = 1.5f,
+                                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 6f), 0f)
+                                )
+                                val selItem = trends[selectedMonthIndex]
+                                val tipText = "${selItem.monthName} • Atual: ${selItem.avgTempCurrent}°C | Hist: ${selItem.avgTempHistorical}°C"
+                                val measured = textMeasurer.measure(tipText, TextStyle(color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold))
+                                val tw = measured.size.width + 16f
+                                val th = measured.size.height + 8f
+                                val tx = (selX - tw / 2f).coerceIn(4f, w - tw - 4f)
+                                val ty = 2f
+                                drawRoundRect(color = Color(0xFF0F172A), topLeft = Offset(tx, ty), size = Size(tw, th), cornerRadius = CornerRadius(6f, 6f))
+                                drawRoundRect(color = primaryColor, topLeft = Offset(tx, ty), size = Size(tw, th), cornerRadius = CornerRadius(6f, 6f), style = Stroke(width = 1f))
+                                safeDrawText(textMeasurer, tipText, topLeft = Offset(tx + 8f, ty + 4f), style = TextStyle(color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold))
                             }
                         }
                     }

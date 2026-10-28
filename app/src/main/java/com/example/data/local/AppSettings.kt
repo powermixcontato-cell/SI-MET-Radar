@@ -45,6 +45,11 @@ class AppSettings(context: Context) {
         get() = prefs.getString(KEY_RECENT_CITIES, null)?.split("\n")?.filter { it.isNotBlank() } ?: DEFAULT_RECENTS
         set(v) { prefs.edit().putString(KEY_RECENT_CITIES, v.take(15).joinToString("\n")).apply() }
 
+    /** Indica se o app já perguntou / tratou a localização inicial do usuário no primeiro uso. */
+    var hasRequestedInitialLocation: Boolean
+        get() = prefs.getBoolean(KEY_HAS_REQUESTED_INITIAL_LOC, false)
+        set(v) { prefs.edit().putBoolean(KEY_HAS_REQUESTED_INITIAL_LOC, v).apply() }
+
     fun addRecentCity(place: com.example.data.remote.RainPlace) {
         val encoded = place.encode()
         val current = recentCities.filterNot {
@@ -91,6 +96,7 @@ class AppSettings(context: Context) {
         private const val KEY_ACTIVE_CITY_PLACE = "active_city_place"
         private const val KEY_FAV_CITIES = "forecast_favorite_cities"
         private const val KEY_RECENT_CITIES = "forecast_recent_cities"
+        private const val KEY_HAS_REQUESTED_INITIAL_LOC = "has_requested_initial_location"
 
         val DEFAULT_FAVORITES = listOf(
             "São Paulo|São Paulo|-23.5489|-46.6388",

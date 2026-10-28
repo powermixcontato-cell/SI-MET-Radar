@@ -43,17 +43,17 @@ fun RainMapCard(state: BrState, modifier: Modifier = Modifier) {
     SimetCard(modifier = modifier.testTag("card_rain_map")) {
         SimetCardHeader(
             icon = Icons.Default.Radar,
-            title = "Mapa de chuva • ${state.uf}",
-            subtitle = "Radar (RainViewer) • último quadro • toque para ampliar"
+            title = "Radar de chuva • ${state.uf}",
+            subtitle = "Radar ao vivo"
         ) {
             IconButton(onClick = { expanded = true }, modifier = Modifier.size(36.dp)) {
-                Icon(Icons.Default.OpenInFull, contentDescription = "Ampliar mapa de chuva", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+                Icon(Icons.Default.OpenInFull, contentDescription = "Ampliar mapa", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
             }
         }
         Spacer(Modifier.height(10.dp))
         SimetLeafletMap(
             mode = SimetMapMode.RAIN, lat = state.centerLat, lon = state.centerLon, zoom = state.zoom, state = state,
-            interactive = false, modifier = Modifier.fillMaxWidth().height(260.dp), onTap = { expanded = true }
+            interactive = true, modifier = Modifier.fillMaxWidth().height(280.dp), onTap = { expanded = true }
         )
         Spacer(Modifier.height(10.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -65,7 +65,7 @@ fun RainMapCard(state: BrState, modifier: Modifier = Modifier) {
             ) {
                 Icon(Icons.Default.Timeline, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(6.dp))
-                Text("Ver trajetória da chuva", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                Text("Trajetória da chuva", fontWeight = FontWeight.Bold, fontSize = 13.sp)
             }
         }
     }
