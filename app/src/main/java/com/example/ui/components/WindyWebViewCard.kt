@@ -172,6 +172,15 @@ fun WindyEmbed(
                         override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
                             if (request?.isForMainFrame == true) { loading = false; failed = true }
                         }
+                        override fun onRenderProcessGone(view: WebView?, detail: android.webkit.RenderProcessGoneDetail?): Boolean {
+                            loading = false
+                            failed = true
+                            try {
+                                (view?.parent as? android.view.ViewGroup)?.removeView(view)
+                                view?.destroy()
+                            } catch (_: Exception) { }
+                            return true
+                        }
                     }
                     requestedUrl[0] = url
                     loadUrl(url)

@@ -37,8 +37,8 @@ android {
     applicationId = "com.aistudio.ipmetradar.spwthr"
     minSdk = 24
     targetSdk = 36
-    versionCode = 15
-    versionName = "5.7-teste"
+    versionCode = 16
+    versionName = "5.7-teste2"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 

@@ -19,6 +19,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.Share
@@ -82,6 +83,7 @@ fun DailyForecastScreen(
     val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
     var selectedModel by remember { mutableStateOf("Consenso Multimodelo") }
     var forecastPeriodDays by remember { mutableIntStateOf(7) }
+    var showCityModal by remember { mutableStateOf(false) }
 
     if (station == null) return
 
@@ -119,27 +121,59 @@ fun DailyForecastScreen(
                         .padding(20.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            Icons.Default.LocationOn,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            "${current.name}, SP",
-                            color = MaterialTheme.colorScheme.onSurface,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 20.sp
-                        )
+                    val cityTitle = run {
+                        if (current.region.contains(current.name, ignoreCase = true) && current.region.contains(",")) {
+                            current.region
+                        } else if (current.region.endsWith("SP") || current.region.endsWith("PR") || current.region.endsWith("RS") || current.region.length == 2) {
+                            "${current.name}, ${current.region}"
+                        } else {
+                            val uf = com.example.domain.BrState.ofStationId(current.id).uf
+                            "${current.name}, $uf"
+                        }
                     }
 
-                    Text(
-                        current.region,
-                        color = MaterialTheme.colorScheme.primary,
-                        fontSize = 13.sp
-                    )
+                    Surface(
+                        onClick = { showCityModal = true },
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.7f),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)),
+                        modifier = Modifier.testTag("btn_select_city_hero")
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.LocationOn,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        cityTitle,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 19.sp
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Icon(
+                                        Icons.Default.ArrowDropDown,
+                                        contentDescription = "Trocar cidade",
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(22.dp)
+                                    )
+                                }
+                                Text(
+                                    "${current.region} • Toque para alterar",
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontSize = 12.sp
+                                )
+                            }
+                        }
+                    }
 
                     Spacer(modifier = Modifier.height(14.dp))
 
@@ -443,6 +477,17 @@ fun DailyForecastScreen(
         item {
             Spacer(modifier = Modifier.height(48.dp))
         }
+    }
+
+    if (showCityModal) {
+        com.example.ui.components.CitySelectionModal(
+            viewModel = viewModel,
+            onDismiss = { showCityModal = false },
+            onCitySelected = { place ->
+                viewModel.selectCity(place)
+                showCityModal = false
+            }
+        )
     }
 }
 

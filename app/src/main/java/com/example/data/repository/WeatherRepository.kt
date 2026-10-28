@@ -199,15 +199,16 @@ class WeatherRepository(
     ): Boolean = withContext(Dispatchers.IO) {
         val prefs = dao.getUserPreferencesSync()
         if (prefs?.isOfflineModeForced == true) return@withContext false
-        val stations = dao.getAllStationsSync().filter { stateFilter == null || com.example.domain.BrState.ofStationId(it.id) == stateFilter }
+        val all = dao.getAllStationsSync()
+        val priorityStation = priorityStationId?.let { id -> all.firstOrNull { it.id == id } }
+        val stations = all.filter { stateFilter == null || com.example.domain.BrState.ofStationId(it.id) == stateFilter }
         var failures = 0
-        val first = stations.firstOrNull { it.id == priorityStationId }
-        if (first != null) {
-            if (!fetchAndStoreOpenMeteo(first, force = false)) failures++ else refreshCiiagroData(first.id)
+        if (priorityStation != null) {
+            if (!fetchAndStoreOpenMeteo(priorityStation, force = false)) failures++ else refreshCiiagroData(priorityStation.id)
         }
         val gate = Semaphore(MAX_PARALLEL_FETCHES)
         failures += coroutineScope {
-            stations.filter { it.id != first?.id }.map { station ->
+            stations.filter { it.id != priorityStation?.id }.map { station ->
                 async {
                     gate.withPermit {
                         if (!fetchAndStoreOpenMeteo(station, force = false)) 1 else { refreshCiiagroData(station.id); 0 }
@@ -486,6 +487,62 @@ class WeatherRepository(
             val current = dao.getUserPreferencesSync() ?: UserPreferencesEntity()
             dao.insertUserPreferences(transform(current))
         }
+    }
+
+    suspend fun getStationByIdSync(stationId: String): WeatherStationEntity? = withContext(Dispatchers.IO) {
+        dao.getStationByIdSync(stationId)
+    }
+
+    suspend fun selectOrAddCity(place: com.example.data.remote.RainPlace): String = withContext(Dispatchers.IO) {
+        val all = dao.getAllStationsSync()
+        val uf = com.example.data.remote.RainPlace.ufOf(place.admin1.orEmpty()) ?: place.admin1.orEmpty().ifBlank { "BR" }
+        // Match existing station by coordinate proximity (<3km) or exact name + UF
+        val existing = all.firstOrNull { s ->
+            (kotlin.math.abs(s.lat - place.lat) < 0.03 && kotlin.math.abs(s.lon - place.lon) < 0.03) ||
+            (s.name.equals(place.name, ignoreCase = true) &&
+             (s.region.contains(uf, ignoreCase = true) || s.region.contains(place.admin1.orEmpty(), ignoreCase = true)))
+        }
+
+        val stationId = existing?.id ?: run {
+            val slug = java.text.Normalizer.normalize(place.name, java.text.Normalizer.Form.NFD)
+                .replace(Regex("\\p{InCombiningDiacriticalMarks}+"), "")
+                .lowercase(java.util.Locale.ROOT)
+                .replace(Regex("[^a-z0-9]"), "_")
+                .trim('_')
+            val generatedId = "city_${slug}_${uf.lowercase(java.util.Locale.ROOT)}"
+            val station = WeatherStationEntity(
+                id = generatedId,
+                name = place.name,
+                region = if (place.admin1.isNullOrBlank()) uf else "${place.name}, $uf",
+                lat = place.lat,
+                lon = place.lon,
+                currentTemp = 0.0,
+                minTemp = 0.0,
+                maxTemp = 0.0,
+                feelsLike = 0.0,
+                humidity = 0,
+                pressure = 1013,
+                windSpeed = 0.0,
+                windDirection = "—",
+                rainVolumeMm = 0.0,
+                rainProbability = 0,
+                dbzReflectivity = 0,
+                weatherCondition = "Consultando Open-Meteo...",
+                iconType = "cloudy",
+                synopticSummary = "Previsão numérica Open-Meteo para ${place.name}, $uf.",
+                sunrise = "06:00",
+                sunset = "18:00",
+                uvIndex = 0,
+                aqi = 0,
+                lastUpdated = 0L
+            )
+            dao.insertStation(station)
+            generatedId
+        }
+
+        updatePreferences { it.copy(activeStationId = stationId) }
+        refreshStation(stationId, forceOffline = false)
+        stationId
     }
 
     suspend fun updateSubscription(sub: RegionSubscriptionEntity) = withContext(Dispatchers.IO) {

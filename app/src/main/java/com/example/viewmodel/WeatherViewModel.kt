@@ -554,8 +554,12 @@ class WeatherViewModel(
             repository.initializePreloadedDataIfNeeded()
             val state = _selectedState.value
             val saved = repository.getSavedActiveStationId()
-            _selectedStationId.value = if (saved != null && com.example.domain.BrState.ofStationId(saved) == state) saved else state.defaultStationId
-            repository.refreshAllHourlyAndDailyLive(_selectedStationId.value, stateFilter = state)
+            if (!saved.isNullOrBlank()) {
+                _selectedStationId.value = saved
+            } else {
+                _selectedStationId.value = state.defaultStationId
+            }
+            repository.refreshAllHourlyAndDailyLive(_selectedStationId.value, stateFilter = null)
         }
         // v5.1: avisos oficiais do INMET (antes nunca eram buscados) e rios/indicadores, a cada 30 min
         viewModelScope.launch {
@@ -760,10 +764,42 @@ class WeatherViewModel(
     fun selectStation(stationId: String) {
         _selectedStationId.value = stationId
         viewModelScope.launch {
-            val currentPrefs = userPreferences.value
-            repository.updatePreferences(currentPrefs.copy(activeStationId = stationId))
+            repository.updatePreferences { it.copy(activeStationId = stationId) }
+            val station = repository.getStationByIdSync(stationId)
+            if (station != null) {
+                val place = com.example.data.remote.RainPlace(station.name, station.region, station.lat, station.lon)
+                settings?.addRecentCity(place)
+                settings?.activeCityPlace = place.encode()
+            }
             repository.refreshStation(stationId)
         }
+    }
+
+    fun selectCity(place: com.example.data.remote.RainPlace) {
+        viewModelScope.launch {
+            _isRefreshing.value = true
+            settings?.addRecentCity(place)
+            settings?.activeCityPlace = place.encode()
+            val stationId = repository.selectOrAddCity(place)
+            _selectedStationId.value = stationId
+            _isRefreshing.value = false
+        }
+    }
+
+    fun toggleFavoriteCity(place: com.example.data.remote.RainPlace): Boolean {
+        return settings?.toggleFavoriteCity(place) ?: false
+    }
+
+    fun isFavoriteCity(place: com.example.data.remote.RainPlace): Boolean {
+        return settings?.isFavoriteCity(place) ?: false
+    }
+
+    fun getFavoriteCities(): List<com.example.data.remote.RainPlace> {
+        return settings?.favoriteCities?.mapNotNull { com.example.data.remote.RainPlace.decode(it) } ?: emptyList()
+    }
+
+    fun getRecentCities(): List<com.example.data.remote.RainPlace> {
+        return settings?.recentCities?.mapNotNull { com.example.data.remote.RainPlace.decode(it) } ?: emptyList()
     }
 
     fun setRadarCenter(center: String) {
