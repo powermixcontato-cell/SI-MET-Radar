@@ -1,5 +1,6 @@
 package com.example.ui.screens
 
+import com.example.ui.components.RealStormCellsCard
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
 import android.Manifest
@@ -93,6 +94,8 @@ fun RadarToolsScreen(
 ) {
     val context = LocalContext.current
     val stations by viewModel.allStations.collectAsStateWithLifecycle()
+    val stormCellsUi by viewModel.stormCellsUi.collectAsStateWithLifecycle()
+    val realStormCells by viewModel.activeStormCellsFlow.collectAsStateWithLifecycle()
     val currentStation by viewModel.currentStation.collectAsStateWithLifecycle()
     val currentCiiagro by viewModel.currentCiiagroRecord.collectAsStateWithLifecycle()
     val activeCenter by viewModel.activeRadarCenter.collectAsStateWithLifecycle()
@@ -201,6 +204,14 @@ fun RadarToolsScreen(
         }
 
         // v5.1: aviso de conteúdo ilustrativo
+        item(key = "real_storm_cells") {
+            RealStormCellsCard(
+                state = stormCellsUi,
+                onRetry = { viewModel.refreshStormCells() },
+                onSelect = { viewModel.selectStormCell(it) },
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+            )
+        }
         item {
             Card(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
@@ -211,9 +222,9 @@ fun RadarToolsScreen(
                     Icon(Icons.Default.Warning, contentDescription = null, tint = Color(0xFFFFAB00), modifier = Modifier.size(20.dp))
                     Spacer(Modifier.width(10.dp))
                     Text(
-                        "Valores ilustrativos: o \"Radar & Vento Nativo\", as células de tempestade/trajetórias e o resumo " +
-                            "regional de chuva desta tela são simulações visuais do app, não medições do IPMet. Para o radar real " +
-                            "use o mapa de chuva da tela Início ou a animação oficial do IPMet (Outros).",
+                        "As células de tempestade abaixo são REAIS (mosaico de radar RainViewer, com horário). O \"Radar & Vento " +
+                            "Nativo\" e o resumo regional de chuva continuam sendo estimativas visuais do app, não medições do IPMet. " +
+                            "Para a animação oficial do IPMet use Outros.",
                         color = Color(0xFFFDE68A), fontSize = 11.sp, lineHeight = 15.sp
                     )
                 }
@@ -516,7 +527,7 @@ fun RadarToolsScreen(
                     isPlaying = isPlaying,
                     isEnergySaver = prefs.isEnergySaverEnabled,
                     selectedStation = currentStation,
-                    stormCells = viewModel.activeStormCells,
+                    stormCells = realStormCells,
                     showTrajectories = showTrajectories,
                     selectedStormCell = selectedStormCell,
                     userCoordinates = userCoordinates,
@@ -536,7 +547,8 @@ fun RadarToolsScreen(
         }
 
         // Diagnóstico de Precisão de Chuva com Google Maps Grounding & Gemini 3.5 Flash
-        item {
+        // Sem chave do Gemini (sempre no release) o card de IA não é exibido
+        if (com.example.data.remote.GeminiMapsWeatherService.isConfigured) item {
             GoogleMapsRainPrecisionCard(
                 precisionState = mapsRainPrecisionState,
                 userCoordinates = userCoordinates,
@@ -656,7 +668,7 @@ fun RadarToolsScreen(
             isPlaying = isPlaying,
             isEnergySaver = prefs.isEnergySaverEnabled,
             selectedStation = currentStation,
-            stormCells = viewModel.activeStormCells,
+            stormCells = realStormCells,
             showTrajectories = showTrajectories,
             selectedStormCell = selectedStormCell,
             userCoordinates = userCoordinates,

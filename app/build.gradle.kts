@@ -28,6 +28,11 @@ fun simetSetting(name: String): String {
 }
 val simetApiBaseUrl = simetSetting("SIMET_API_BASE_URL")
 val simetApiKey = simetSetting("SIMET_API_KEY")
+// Chave do Gemini: SÓ para builds de debug locais. O release NUNCA embute GEMINI_API_KEY nem SIMET_API_KEY
+// (qualquer valor em BuildConfig pode ser extraído do APK/AAB). TODO: mover as chamadas do Gemini para o
+// servidor próprio (simet-server) e autenticar o app lá, sem segredo no cliente.
+val geminiApiKeyDebugOnly = simetSetting("GEMINI_API_KEY")
+fun String.asBuildConfigString() = "\"${replace("\\", "").replace("\"", "")}\""
 
 android {
   namespace = "com.example"
@@ -43,7 +48,6 @@ android {
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
     buildConfigField("String", "SIMET_API_BASE_URL", "\"${simetApiBaseUrl.replace("\"", "")}\"")
-    buildConfigField("String", "SIMET_API_KEY", "\"${simetApiKey.replace("\"", "")}\"")
   }
 
   signingConfigs {
@@ -64,7 +68,7 @@ android {
         keyAlias = System.getenv("KEY_ALIAS") ?: "upload"
         keyPassword = System.getenv("KEY_PASSWORD")
       } else {
-        logger.warn("AVISO: keystore.properties/KEYSTORE_PATH não encontrado. O release sairá SEM assinatura (veja README.md).")
+        logger.warn("AVISO: keystore.properties/KEYSTORE_PATH não encontrado. O build de release vai falhar até a chave de upload ser configurada.")
       }
     }
     if (file("${rootDir}/debug.keystore").exists()) {
@@ -87,9 +91,16 @@ android {
       isShrinkResources = true
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
       signingConfig = signingConfigs.getByName("release").takeIf { it.storeFile?.exists() == true }
+      // Segredos fora do release
+      buildConfigField("String", "SIMET_API_KEY", "\"\"")
+      buildConfigField("String", "GEMINI_API_KEY", "\"\"")
     }
     // Sem debug.keystore na raiz, usa a chave de debug padrão do Android Gradle Plugin (~/.android/debug.keystore)
-    debug { signingConfigs.findByName("debugConfig")?.let { signingConfig = it } }
+    debug {
+      signingConfigs.findByName("debugConfig")?.let { signingConfig = it }
+      buildConfigField("String", "SIMET_API_KEY", simetApiKey.asBuildConfigString())
+      buildConfigField("String", "GEMINI_API_KEY", geminiApiKeyDebugOnly.asBuildConfigString())
+    }
   }
   compileOptions {
     sourceCompatibility = JavaVersion.VERSION_11
@@ -115,6 +126,25 @@ secrets {
   // lidos manualmente em simetSetting() (aceitam também -P e variável de ambiente)
   ignoreList.add("SIMET_API_BASE_URL")
   ignoreList.add("SIMET_API_KEY")
+  // GEMINI_API_KEY é definida por build type acima (vazia no release); o plugin não deve gerá-la
+  ignoreList.add("GEMINI_API_KEY")
+}
+
+// Release sem assinatura agora FALHA o build (antes só um aviso no log). Não lê nem imprime nenhum segredo:
+// só verifica se a configuração de assinatura aponta para um keystore existente.
+gradle.taskGraph.whenReady {
+  val wantsRelease = allTasks.any { t ->
+    t.project == project && Regex("^(bundle|assemble|package|publish)Release$|^(sign)ReleaseBundle$").matches(t.name)
+  }
+  if (wantsRelease) {
+    val rel = android.signingConfigs.getByName("release")
+    val ok = rel.storeFile?.exists() == true && !rel.storePassword.isNullOrEmpty() &&
+      !rel.keyAlias.isNullOrEmpty() && !rel.keyPassword.isNullOrEmpty()
+    if (!ok) throw GradleException(
+      "Release sem assinatura: crie keystore.properties na raiz (storeFile, storePassword, keyAlias, keyPassword) " +
+      "ou defina KEYSTORE_PATH, STORE_PASSWORD, KEY_ALIAS e KEY_PASSWORD. O build de release foi interrompido."
+    )
+  }
 }
 
 googleServices { missingGoogleServicesStrategy = MissingGoogleServicesStrategy.WARN }

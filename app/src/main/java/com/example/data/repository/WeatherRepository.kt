@@ -258,16 +258,7 @@ class WeatherRepository(
         if (missing.isNotEmpty()) dao.insertStations(missing)
 
         // Migra chaves salvas em texto puro no Room para o armazenamento cifrado e apaga do Room
-        val prefsNow = dao.getUserPreferencesSync()
-        if (keyStore != null && prefsNow != null &&
-            (prefsNow.openWeatherApiKey.isNotBlank() || prefsNow.weatherbitApiKey.isNotBlank())) {
-            try {
-                keyStore.save(prefsNow.openWeatherApiKey, prefsNow.weatherbitApiKey)
-                dao.insertUserPreferences(prefsNow.copy(openWeatherApiKey = "", weatherbitApiKey = ""))
-            } catch (e: Exception) {
-                Log.w(TAG, "Falha ao migrar chaves para armazenamento cifrado", e)
-            }
-        }
+        migratePlaintextKeys()
 
         // Nunca grava alertas nem previsões. Remove alertas fixos de instalações antigas.
         dao.deleteSeedAlerts()
@@ -443,11 +434,11 @@ class WeatherRepository(
 
     private suspend fun readOpenWeatherKey(prefs: UserPreferencesEntity): String =
         try { keyStore?.openWeatherKey() } catch (e: Exception) { Log.w(TAG, "Chave OpenWeather ilegível", e); null }
-            ?.takeIf { it.isNotBlank() } ?: prefs.openWeatherApiKey
+            ?.takeIf { it.isNotBlank() } ?: ""
 
     private suspend fun readWeatherbitKey(prefs: UserPreferencesEntity): String =
         try { keyStore?.weatherbitKey() } catch (e: Exception) { Log.w(TAG, "Chave Weatherbit ilegível", e); null }
-            ?.takeIf { it.isNotBlank() } ?: prefs.weatherbitApiKey
+            ?.takeIf { it.isNotBlank() } ?: ""
 
     /** Chaves atuais para a tela de configurações. */
     suspend fun readApiKeys(): Pair<String, String> = withContext(Dispatchers.IO) {
@@ -455,15 +446,49 @@ class WeatherRepository(
         Pair(readOpenWeatherKey(prefs), readWeatherbitKey(prefs))
     }
 
-    /** Salva as chaves cifradas (ou no Room, se não houver keyStore) e limpa o texto puro do Room. */
-    suspend fun saveApiKeys(openWeatherKey: String, weatherbitKey: String) = withContext(Dispatchers.IO) {
-        val prefs = dao.getUserPreferencesSync() ?: UserPreferencesEntity()
-        if (keyStore != null) {
-            keyStore.save(openWeatherKey, weatherbitKey)
-            dao.insertUserPreferences(prefs.copy(openWeatherApiKey = "", weatherbitApiKey = ""))
+    /**
+     * Salva as chaves SÓ no armazenamento cifrado e apaga qualquer cópia em texto puro do Room.
+     * Sem keyStore (não deveria acontecer no app) as chaves NÃO são gravadas. Retorna true se salvou.
+     * A limpeza usa updatePreferences(transform) (lê o valor atual sob mutex) para não sobrescrever ajustes novos.
+     */
+    suspend fun saveApiKeys(openWeatherKey: String, weatherbitKey: String): Boolean = withContext(Dispatchers.IO) {
+        val saved = if (keyStore != null) {
+            try { keyStore.save(openWeatherKey.trim(), weatherbitKey.trim()); true }
+            catch (e: Exception) { Log.w(TAG, "Falha ao salvar chaves cifradas"); false }
         } else {
-            dao.insertUserPreferences(prefs.copy(openWeatherApiKey = openWeatherKey.trim(), weatherbitApiKey = weatherbitKey.trim()))
+            Log.w(TAG, "Sem armazenamento cifrado: chaves não foram salvas")
+            false
         }
+        wipePlaintextKeys()
+        saved
+    }
+
+    /** Apaga as chaves em texto puro do Room (versões antigas gravavam ali). */
+    private suspend fun wipePlaintextKeys() {
+        updatePreferences { p ->
+            if (p.openWeatherApiKey.isEmpty() && p.weatherbitApiKey.isEmpty()) p
+            else p.copy(openWeatherApiKey = "", weatherbitApiKey = "")
+        }
+    }
+
+    /**
+     * Migração na inicialização: move chaves em texto puro para o armazenamento cifrado
+     * (a chave cifrada já existente tem prioridade) e apaga o texto puro do Room.
+     */
+    suspend fun migratePlaintextKeys() = withContext(Dispatchers.IO) {
+        val prefs = dao.getUserPreferencesSync() ?: return@withContext
+        if (prefs.openWeatherApiKey.isBlank() && prefs.weatherbitApiKey.isBlank()) return@withContext
+        if (keyStore != null) {
+            try {
+                val ow = keyStore.openWeatherKey().ifBlank { prefs.openWeatherApiKey.trim() }
+                val wb = keyStore.weatherbitKey().ifBlank { prefs.weatherbitApiKey.trim() }
+                keyStore.save(ow, wb)
+            } catch (e: Exception) {
+                Log.w(TAG, "Falha ao migrar chaves para armazenamento cifrado")
+            }
+        }
+        // Apaga o texto puro mesmo se a migração falhar: melhor pedir a chave de novo do que deixá-la exposta.
+        wipePlaintextKeys()
     }
 
     /** activeStationId salvo nas preferências (também usado pelo widget). */

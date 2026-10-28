@@ -35,6 +35,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -358,84 +359,34 @@ class WeatherViewModel(
         WeatherNewsProvider.getNewsForRegion(station, alerts, coords)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    // Active storm cells modeled from IPMet radar reflectivity
-    val activeStormCells: List<StormCellTrajectory> = listOf(
-        StormCellTrajectory(
-            id = "cell_barretos_colina",
-            name = "Célula Severa Barretos & Baixo Pardo",
-            originLat = -20.557,
-            originLon = -48.567,
-            dbzPeak = 54,
-            rainRateMmH = 42.0,
-            speedKmH = 40.0,
-            directionAngleDeg = 20.0,
-            headingCompass = "Leste-Sudeste (110° ESE)",
-            impactTowns = listOf("Barretos", "Colina", "Bebedouro", "Severínia"),
-            eta15m = "Colina (+15m)",
-            eta30m = "Bebedouro (+30m)",
-            eta45m = "Monte Azul Paulista (+45m)"
-        ),
-        StormCellTrajectory(
-            id = "cell_bauru_botucatu",
-            name = "Célula Convectiva Centro-Oeste (Bauru)",
-            originLat = -22.55,
-            originLon = -48.80,
-            dbzPeak = 52,
-            rainRateMmH = 34.0,
-            speedKmH = 38.0,
-            directionAngleDeg = 25.0,
-            headingCompass = "Leste-Sudeste (115° ESE)",
-            impactTowns = listOf("Botucatu", "Lençóis Paulista", "Jaú", "Bauru"),
-            eta15m = "Lençóis Paulista (+15m)",
-            eta30m = "Botucatu (+30m)",
-            eta45m = "Jaú (+45m)"
-        ),
-        StormCellTrajectory(
-            id = "cell_vale_paraiba",
-            name = "Linha de Instabilidade Mantiqueira",
-            originLat = -22.95,
-            originLon = -45.75,
-            dbzPeak = 56,
-            rainRateMmH = 48.0,
-            speedKmH = 32.0,
-            directionAngleDeg = 15.0,
-            headingCompass = "Leste (95° E)",
-            impactTowns = listOf("Campos do Jordão", "São José dos Campos", "Taubaté"),
-            eta15m = "Campos do Jordão (+15m)",
-            eta30m = "Pindamonhangaba (+30m)",
-            eta45m = "Taubaté (+45m)"
-        ),
-        StormCellTrajectory(
-            id = "cell_campinas_tiete",
-            name = "Célula Convectiva Médio Tietê",
-            originLat = -22.95,
-            originLon = -47.20,
-            dbzPeak = 42,
-            rainRateMmH = 18.0,
-            speedKmH = 26.0,
-            directionAngleDeg = 35.0,
-            headingCompass = "Sudeste (125° SE)",
-            impactTowns = listOf("Campinas", "Paulínia", "Jundiaí", "Sumaré"),
-            eta15m = "Paulínia (+15m)",
-            eta30m = "Campinas (+30m)",
-            eta45m = "Jundiaí (+45m)"
-        ),
-        StormCellTrajectory(
-            id = "cell_litoral_santos",
-            name = "Instabilidade Orográfica Serra do Mar",
-            originLat = -23.95,
-            originLon = -46.35,
-            dbzPeak = 44,
-            rainRateMmH = 24.0,
-            speedKmH = 20.0,
-            directionAngleDeg = 10.0,
-            headingCompass = "Leste-Nordeste (70° ENE)",
-            impactTowns = listOf("Santos", "São Vicente", "Guarujá", "Bertioga"),
-            eta15m = "Santos (+15m)",
-            eta30m = "Guarujá (+30m)",
-            eta45m = "Bertioga (+45m)"
-        )
-    )
+    // v5.1: células de tempestade REAIS (mosaico RainViewer). Sem dado → erro; sem eco forte → lista vazia.
+    sealed interface StormCellsUi {
+        data object Loading : StormCellsUi
+        data class Ready(val result: com.example.data.remote.StormCellsResult) : StormCellsUi
+        data class Error(val message: String) : StormCellsUi
+    }
+    private val stormService = com.example.data.remote.RainViewerStormService()
+    private val _stormCellsUi = MutableStateFlow<StormCellsUi>(StormCellsUi.Loading)
+    val stormCellsUi: StateFlow<StormCellsUi> = _stormCellsUi.asStateFlow()
+    val activeStormCellsFlow: StateFlow<List<StormCellTrajectory>> = _stormCellsUi
+        .map { (it as? StormCellsUi.Ready)?.result?.cells ?: emptyList() }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    fun refreshStormCells() {
+        viewModelScope.launch {
+            val places = allStations.value.map { com.example.data.remote.NamedPlace(it.name, it.lat, it.lon) }
+            _stormCellsUi.value = try {
+                StormCellsUi.Ready(kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { stormService.fetch(places) })
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                android.util.Log.w("WeatherViewModel", "Células de tempestade indisponíveis", e)
+                StormCellsUi.Error("Radar indisponível agora (RainViewer). Nenhuma célula é mostrada sem dado real.")
+            }
+            val sel = _selectedStormCell.value
+            if (sel != null && activeStormCellsFlow.value.none { it.id == sel.id }) _selectedStormCell.value = null
+        }
+    }
 
     // Regional rainfall summaries across SP macro-regions
     val regionalRainfallSummaries: List<RegionalRainSummary> = listOf(
@@ -564,6 +515,14 @@ class WeatherViewModel(
                 repository.refreshInmetAlerts()
                 refreshHazards(_selectedState.value)
                 kotlinx.coroutines.delay(30 * 60_000L)
+            }
+        }
+        // v5.1: células de tempestade reais (RainViewer publica um quadro a cada 10 min)
+        viewModelScope.launch {
+            while (true) {
+                awaitForeground()
+                refreshStormCells()
+                kotlinx.coroutines.delay(10 * 60_000L)
             }
         }
         viewModelScope.launch {
@@ -812,15 +771,20 @@ class WeatherViewModel(
         }
     }
 
+    /** Chaves atuais (lidas do armazenamento cifrado) só para preencher a tela de Ajustes. */
+    private val _apiKeys = kotlinx.coroutines.flow.MutableStateFlow("" to "")
+    val apiKeys: kotlinx.coroutines.flow.StateFlow<Pair<String, String>> = _apiKeys
+
+    fun loadApiKeys() {
+        viewModelScope.launch { _apiKeys.value = repository.readApiKeys() }
+    }
+
     fun saveApiKeys(openWeatherKey: String, weatherbitKey: String) {
         viewModelScope.launch {
-            val current = userPreferences.value
-            repository.updatePreferences(
-                current.copy(
-                    openWeatherApiKey = openWeatherKey.trim(),
-                    weatherbitApiKey = weatherbitKey.trim()
-                )
-            )
+            _apiKeys.value = openWeatherKey.trim() to weatherbitKey.trim()
+            // Chaves vão direto para o armazenamento cifrado (Keystore + DataStore); nunca em texto puro no Room.
+            // O repositório lê as preferências atuais do banco (sem usar a cópia da UI), então não sobrescreve ajustes novos.
+            repository.saveApiKeys(openWeatherKey, weatherbitKey)
             repository.refreshStation(_selectedStationId.value)
         }
     }
